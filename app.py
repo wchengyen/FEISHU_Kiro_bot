@@ -45,38 +45,56 @@ client = lark.Client.builder() \
 # ============ 飞书消息发送 ============
 def send_message(user_id: str, text: str):
     """主动给用户发消息（用于定时任务）"""
-    if len(text) > 4000:
-        text = text[:3950] + "\n\n... (内容过长已截断)"
-    req = CreateMessageRequest.builder() \
-        .receive_id_type("open_id") \
-        .request_body(CreateMessageRequestBody.builder()
-                      .receive_id(user_id)
-                      .msg_type("text")
-                      .content(json.dumps({"text": text}))
-                      .build()) \
-        .build()
-    resp = client.im.v1.message.create(req)
-    if not resp.success():
-        log.error(f"主动发送失败: {resp.code} {resp.msg}")
-    else:
-        log.info(f"已主动发送消息给 {user_id}")
+    chunks = _split_text(text, 4000)
+    for chunk in chunks:
+        req = CreateMessageRequest.builder() \
+            .receive_id_type("open_id") \
+            .request_body(CreateMessageRequestBody.builder()
+                          .receive_id(user_id)
+                          .msg_type("text")
+                          .content(json.dumps({"text": chunk}))
+                          .build()) \
+            .build()
+        resp = client.im.v1.message.create(req)
+        if not resp.success():
+            log.error(f"主动发送失败: {resp.code} {resp.msg}")
+            break
+    log.info(f"已主动发送消息给 {user_id}（{len(chunks)} 段）")
 
 
 def reply_message(message_id: str, text: str):
-    if len(text) > 4000:
-        text = text[:3950] + "\n\n... (内容过长已截断)"
-    req = ReplyMessageRequest.builder() \
-        .message_id(message_id) \
-        .request_body(ReplyMessageRequestBody.builder()
-                      .msg_type("text")
-                      .content(json.dumps({"text": text}))
-                      .build()) \
-        .build()
-    resp = client.im.v1.message.reply(req)
-    if not resp.success():
-        log.error(f"回复失败: {resp.code} {resp.msg}")
-    else:
-        log.info(f"已回复消息 {message_id}")
+    chunks = _split_text(text, 4000)
+    for chunk in chunks:
+        req = ReplyMessageRequest.builder() \
+            .message_id(message_id) \
+            .request_body(ReplyMessageRequestBody.builder()
+                          .msg_type("text")
+                          .content(json.dumps({"text": chunk}))
+                          .build()) \
+            .build()
+        resp = client.im.v1.message.reply(req)
+        if not resp.success():
+            log.error(f"回复失败: {resp.code} {resp.msg}")
+            break
+    log.info(f"已回复消息 {message_id}（{len(chunks)} 段）")
+
+
+def _split_text(text: str, limit: int = 4000) -> list[str]:
+    """按换行符分段，每段不超过 limit 字符"""
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    while text:
+        if len(text) <= limit:
+            chunks.append(text)
+            break
+        # 在 limit 范围内找最后一个换行
+        cut = text.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+    return chunks
 
 
 def strip_ansi(text: str) -> str:
