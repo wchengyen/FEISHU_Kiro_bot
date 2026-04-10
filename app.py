@@ -115,7 +115,7 @@ def call_kiro(prompt: str) -> str:
     log.info(f"调用 kiro-cli: {prompt[:80]}...")
     try:
         result = subprocess.run(
-            ["kiro-cli", "chat", "--no-interactive", "-a", "--wrap", "never", prompt],
+            ["kiro-cli", "chat", "--no-interactive", "-a", "--agent", "my-dev-bot", "--wrap", "never", prompt],
             capture_output=True, text=True, timeout=KIRO_TIMEOUT,
             env={**os.environ, "NO_COLOR": "1"},
         )
@@ -142,14 +142,28 @@ def handle_user_message(message_id: str, user_id: str, user_text: str):
         reply_message(message_id, result)
         return
 
+    # 处理 /memory 命令
+    if user_text.startswith("/memory"):
+        args = user_text[len("/memory"):].strip().lower()
+        result = handle_memory_command(user_id, args)
+        reply_message(message_id, result)
+        return
+
     reply_message(message_id, "🤖 正在处理，请稍候...")
 
+    mem_enabled = memory.is_enabled(user_id)
+
     # 立即存储用户原文（确保下次对话可用）
-    memory.add(user_id, f"用户说：{user_text}")
-    log.info(f"已存储用户消息到记忆")
+    if mem_enabled:
+        memory.add(user_id, f"用户说：{user_text}")
+        log.info(f"已存储用户消息到记忆")
 
     # 检索相关记忆
-    memories = memory.search(user_id, user_text)
+    if mem_enabled:
+        memories = memory.search(user_id, user_text)
+    else:
+        memories = []
+
     if memories:
         mem_text = "\n".join(f"- {m}" for m in memories)
         prompt = f"关于这个用户的已知信息：\n{mem_text}\n\n用户消息：{user_text}"
@@ -161,8 +175,34 @@ def handle_user_message(message_id: str, user_id: str, user_text: str):
     reply_message(message_id, kiro_response)
 
     # 异步提取结构化记忆（补充）
-    conversation = f"用户：{user_text}\n助手：{kiro_response}"
-    threading.Thread(target=memory.extract_and_store, args=(user_id, conversation), daemon=True).start()
+    if mem_enabled:
+        conversation = f"用户：{user_text}\n助手：{kiro_response}"
+        threading.Thread(target=memory.extract_and_store, args=(user_id, conversation), daemon=True).start()
+
+
+def handle_memory_command(user_id: str, args: str) -> str:
+    if args == "off":
+        memory.set_enabled(user_id, False)
+        return "🧠 记忆功能已关闭。后续对话不会存储或检索记忆。\n发送 /memory on 可重新开启。"
+    elif args == "on":
+        memory.set_enabled(user_id, True)
+        return "🧠 记忆功能已开启。对话将自动存储和检索记忆。"
+    elif args == "clear":
+        memory.clear(user_id)
+        return f"🗑️ 已清除你的所有记忆。"
+    elif args == "status":
+        enabled = memory.is_enabled(user_id)
+        all_mem = memory.list_all(user_id)
+        status = "开启 ✅" if enabled else "关闭 ❌"
+        return f"🧠 记忆状态：{status}\n📊 记忆条数：{len(all_mem)}"
+    else:
+        return (
+            "🧠 记忆管理命令：\n"
+            "/memory status - 查看记忆状态\n"
+            "/memory on     - 开启记忆\n"
+            "/memory off    - 关闭记忆\n"
+            "/memory clear  - 清除所有记忆"
+        )
 
 
 # ============ 事件处理 ============

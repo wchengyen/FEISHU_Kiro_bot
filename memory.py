@@ -3,6 +3,7 @@ import hashlib
 import logging
 import subprocess
 import os
+import json
 from datetime import datetime
 
 import chromadb
@@ -16,6 +17,8 @@ EMBEDDING_MODEL = os.environ.get(
     "/home/ubuntu/modelscope/paraphrase-multilingual-MiniLM-L12-v2",
 )
 
+SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "memory_settings.json")
+
 
 class MemoryLayer:
     def __init__(self, db_path="./memory_db"):
@@ -26,7 +29,27 @@ class MemoryLayer:
             metadata={"hnsw:space": "cosine"},
             embedding_function=self.ef,
         )
+        self._settings = self._load_settings()
         log.info(f"记忆层初始化完成，已有 {self.collection.count()} 条记忆")
+
+    # ---- 用户设置持久化 ----
+    def _load_settings(self) -> dict:
+        try:
+            with open(SETTINGS_PATH, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def _save_settings(self):
+        with open(SETTINGS_PATH, "w") as f:
+            json.dump(self._settings, f, ensure_ascii=False, indent=2)
+
+    def is_enabled(self, user_id: str) -> bool:
+        return self._settings.get(user_id, {}).get("enabled", True)
+
+    def set_enabled(self, user_id: str, enabled: bool):
+        self._settings.setdefault(user_id, {})["enabled"] = enabled
+        self._save_settings()
 
     def add(self, user_id: str, text: str):
         """存入一条记忆（自动去重）"""
