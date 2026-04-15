@@ -35,9 +35,45 @@
 ### 第二步：添加机器人能力 & 权限
 
 1. 应用详情 → 「添加应用能力」→ 选择「机器人」
-2. 「权限管理」→ 开通：
-   - `im:message` — 获取与发送消息
-   - `im:message:send_as_bot` — 以应用身份发送消息
+2. 「权限管理」→ 开通以下权限：
+
+**应用权限（tenant）：**
+
+| 权限 | 说明 |
+|------|------|
+| `im:message` | 获取与发送消息 |
+| `im:message:send_as_bot` | 以应用身份发送消息 |
+| `im:message:readonly` | 读取消息 |
+| `im:message.p2p_msg:readonly` | 读取私聊消息 |
+| `im:message.group_msg` | 获取群组消息 |
+| `im:message.group_at_msg:readonly` | 读取群内 @机器人消息 |
+| `im:chat` | 获取与管理群组 |
+| `im:chat.members:bot_access` | 获取群成员（机器人所在群） |
+| `im:chat.access_event.bot_p2p_chat:read` | 读取机器人单聊事件 |
+| `im:resource` | 上传图片/文件资源 |
+| `contact:contact.base:readonly` | 读取通讯录基本信息 |
+| `contact:user.employee_id:readonly` | 读取用户工号 |
+| `docs:document.content:read` | 读取文档内容 |
+| `sheets:spreadsheet` | 读写电子表格 |
+| `wiki:wiki:readonly` | 读取知识库 |
+| `aily:file:read` | 读取智能伙伴文件 |
+| `aily:file:write` | 写入智能伙伴文件 |
+| `cardkit:card:write` | 发送卡片消息 |
+| `corehr:file:download` | 下载人事文件 |
+| `application:application.app_message_stats.overview:readonly` | 读取应用消息统计 |
+| `application:application:self_manage` | 应用自管理 |
+| `application:bot.menu:write` | 配置机器人菜单 |
+| `event:ip_list` | 获取事件 IP 列表 |
+
+**用户权限（user）：**
+
+| 权限 | 说明 |
+|------|------|
+| `aily:file:read` | 读取智能伙伴文件 |
+| `aily:file:write` | 写入智能伙伴文件 |
+| `im:chat.access_event.bot_p2p_chat:read` | 读取机器人单聊事件 |
+
+> **提示**：完整权限列表见 `feishu-auth.json`。最小可用权限为 `im:message` + `im:message:send_as_bot`，其余按需开通。
 
 ### 第三步：配置事件订阅（关键！）
 
