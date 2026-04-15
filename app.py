@@ -15,8 +15,15 @@ from lark_oapi.adapter.flask import *
 from lark_oapi.api.im.v1 import *
 
 import re
-from memory import MemoryLayer
 from scheduler import Scheduler
+
+ENABLE_MEMORY = os.environ.get("ENABLE_MEMORY", "false").lower() in ("true", "1", "yes")
+if ENABLE_MEMORY:
+    try:
+        from memory import MemoryLayer
+    except ImportError:
+        logging.warning("记忆依赖未安装（chromadb/sentence-transformers），已自动关闭记忆功能")
+        ENABLE_MEMORY = False
 
 # ============ 配置 ============
 APP_ID = os.environ.get("FEISHU_APP_ID", "")
@@ -32,7 +39,7 @@ _processed = set()
 _processed_lock = threading.Lock()
 
 # ============ 记忆层 ============
-memory = MemoryLayer()
+memory = MemoryLayer() if ENABLE_MEMORY else None
 
 # ============ 飞书客户端 ============
 client = lark.Client.builder() \
@@ -233,6 +240,9 @@ def handle_user_message(message_id: str, user_id: str, user_text: str):
 
     # 处理 /memory 命令
     if user_text.startswith("/memory"):
+        if not ENABLE_MEMORY:
+            reply_message(message_id, "🧠 记忆功能未启用。请在 .env 中设置 ENABLE_MEMORY=true 并安装依赖后重启。")
+            return
         args = user_text[len("/memory"):].strip().lower()
         result = handle_memory_command(user_id, args)
         reply_message(message_id, result)
@@ -240,7 +250,7 @@ def handle_user_message(message_id: str, user_id: str, user_text: str):
 
     reply_message(message_id, "🤖 正在处理，请稍候...")
 
-    mem_enabled = memory.is_enabled(user_id)
+    mem_enabled = ENABLE_MEMORY and memory and memory.is_enabled(user_id)
 
     # 立即存储用户原文（确保下次对话可用）
     if mem_enabled:
