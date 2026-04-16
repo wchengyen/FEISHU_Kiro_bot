@@ -187,6 +187,50 @@ python3 test_memory.py
 sudo journalctl -u feishu-kiro-bot -f
 ```
 
+## 使用 Skills（自定义 Agent）
+
+Kiro CLI 支持通过 **skills** 扩展能力（如 AWS 巡检、文档生成、成本分析等）。要让 Bot 使用 skills，需要：
+
+### 1. 创建自定义 Agent 配置
+
+在 `~/.kiro/agents/` 目录下创建 JSON 文件，例如 `my-dev-bot.json`：
+
+```json
+{
+    "name": "my-dev-bot",
+    "description": "Simple bot for development purposes",
+    "resources": [
+        "skill://.kiro/skills/**/SKILL.md"
+    ],
+    "tools": ["*"]
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `name` | Agent 名称，用于 `KIRO_AGENT` 引用 |
+| `description` | Agent 描述 |
+| `resources` | 引用的 skills，`skill://.kiro/skills/**/SKILL.md` 表示加载所有 skills |
+| `tools` | 允许使用的工具，`["*"]` 表示全部 |
+
+Skills 文件放在 `~/.kiro/skills/<skill-name>/SKILL.md`，每个 SKILL.md 定义一个技能的触发条件和执行逻辑。
+
+### 2. 在 .env 中指定 Agent
+
+```bash
+KIRO_AGENT=my-dev-bot
+```
+
+### 3. 重启服务
+
+```bash
+sudo systemctl restart feishu-kiro-bot
+```
+
+Bot 启动后会使用 `--agent my-dev-bot` 参数调用 kiro-cli，自动加载该 Agent 配置的所有 skills。
+
 ## 常见问题
 
 **Q: 连接不上飞书？**
