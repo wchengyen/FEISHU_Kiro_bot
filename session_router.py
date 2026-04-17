@@ -130,8 +130,9 @@ class SessionRouter:
                 env={"PATH": "/usr/local/bin:/usr/bin:/bin:/home/ubuntu/.local/bin",
                      "HOME": "/home/ubuntu", "NO_COLOR": "1"},
             )
-            # 提取第一个 UUID（最新的 session）
-            uuids = re.findall(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', result.stdout)
+            # kiro-cli 可能输出到 stdout 或 stderr，两者都检查
+            combined = (result.stdout or "") + (result.stderr or "")
+            uuids = re.findall(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', combined)
             return uuids[0] if uuids else None
         except Exception as e:
             log.error(f"捕获 session id 失败: {e}")
