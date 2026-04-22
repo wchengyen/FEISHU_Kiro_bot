@@ -319,8 +319,11 @@ def handle_user_message(message_id: str, user_id: str, user_text: str):
     def on_async_result(output: str):
         _deliver_result(message_id, user_id, user_text, output, session_id, is_new, mem_enabled)
 
+    def on_progress(msg: str):
+        send_message(user_id, msg)
+
     # ---- 执行 ----
-    kiro_executor.execute(prompt, session_id, user_id, on_sync_result, on_async_start, on_async_result)
+    kiro_executor.execute(prompt, session_id, user_id, on_sync_result, on_async_start, on_async_result, on_progress)
 
 
 def _deliver_result(message_id, user_id, user_text, output, session_id, is_new, mem_enabled):

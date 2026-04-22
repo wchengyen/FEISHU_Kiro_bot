@@ -17,4 +17,8 @@ if [ -z "$FEISHU_APP_ID" ] || [ -z "$FEISHU_APP_SECRET" ]; then
 fi
 
 echo "🚀 启动飞书-Kiro 桥接服务（WebSocket 长连接，无需公网IP）"
+# 优先使用本地 venv，没有则用系统 Python
+if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
 python3 app.py
