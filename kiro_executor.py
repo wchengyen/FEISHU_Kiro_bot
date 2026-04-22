@@ -11,8 +11,8 @@ from typing import Callable
 
 log = logging.getLogger("kiro-executor")
 
-SYNC_TIMEOUT = 120   # Phase 1 同步等待
-ASYNC_TIMEOUT = 600  # Phase 2 异步最长等待
+SYNC_TIMEOUT = int(os.environ.get("KIRO_SYNC_TIMEOUT", "120"))    # Phase 1 同步等待
+ASYNC_TIMEOUT = int(os.environ.get("KIRO_ASYNC_TIMEOUT", "1800"))  # Phase 2 异步最长等待（默认30分钟）
 
 DECISION_SIGNALS = [
     "选哪种方式", "选哪个", "你倾向哪个",
@@ -81,12 +81,14 @@ class KiroExecutor:
     def execute(self, prompt: str, session_id: str | None, user_id: str,
                 on_sync_result: Callable[[str], None],
                 on_async_start: Callable[[], None],
-                on_async_result: Callable[[str], None]) -> None:
+                on_async_result: Callable[[str], None],
+                on_progress: Callable[[str], None] | None = None) -> None:
         """
         混合执行：
         - on_sync_result: 同步完成时回调
         - on_async_start: 超时转异步时回调（通知用户）
         - on_async_result: 异步完成时回调（推送结果）
+        - on_progress: 异步期间定期进度回调（可选）
         """
         cmd = [kiro_bin, "chat", "--no-interactive", "-a", "--wrap", "never"]
         if session_id:
@@ -122,16 +124,31 @@ class KiroExecutor:
         on_async_start()
 
         def wait_async():
-            try:
-                stdout, stderr = proc.communicate(timeout=ASYNC_TIMEOUT - SYNC_TIMEOUT)
-                output = strip_ansi(stdout.strip() or stderr.strip() or "Kiro 未返回结果")
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-                output = f"⏰ 任务超时（{ASYNC_TIMEOUT}s），已终止"
-            finally:
-                with self._lock:
-                    self._running.pop(user_id, None)
+            remaining = ASYNC_TIMEOUT - SYNC_TIMEOUT
+            progress_interval = int(os.environ.get("KIRO_PROGRESS_INTERVAL", "300"))
+            elapsed_async = 0
+            while remaining > 0:
+                wait = min(progress_interval, remaining)
+                try:
+                    stdout, stderr = proc.communicate(timeout=wait)
+                    output = strip_ansi(stdout.strip() or stderr.strip() or "Kiro 未返回结果")
+                    with self._lock:
+                        self._running.pop(user_id, None)
+                    on_async_result(output)
+                    return
+                except subprocess.TimeoutExpired:
+                    remaining -= wait
+                    elapsed_async += wait
+                    total_elapsed = SYNC_TIMEOUT + elapsed_async
+                    if remaining > 0 and on_progress:
+                        mins = total_elapsed // 60
+                        on_progress(f"⏳ 仍在处理中（已运行 {mins} 分钟）...")
+            # 真正超时
+            proc.kill()
+            proc.wait()
+            output = f"⏰ 任务超时（{ASYNC_TIMEOUT}s），已终止"
+            with self._lock:
+                self._running.pop(user_id, None)
             on_async_result(output)
 
         threading.Thread(target=wait_async, daemon=True).start()
