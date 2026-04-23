@@ -16,5 +16,10 @@ if [ -z "$FEISHU_APP_ID" ] || [ -z "$FEISHU_APP_SECRET" ]; then
     exit 1
 fi
 
+# 激活 venv（如果存在）
+if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
+
 echo "🚀 启动飞书-Kiro 桥接服务（WebSocket 长连接，无需公网IP）"
-python3 app.py
+python3 "$SCRIPT_DIR/app.py"

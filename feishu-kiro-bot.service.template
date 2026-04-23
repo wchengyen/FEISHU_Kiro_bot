@@ -1,0 +1,15 @@
+[Unit]
+Description=Feishu Kiro Bot Bridge (WebSocket)
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=__INSTALL_DIR__/.env
+ExecStart=__INSTALL_DIR__/start.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

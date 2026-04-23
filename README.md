@@ -113,9 +113,7 @@ vim .env   # 填入 APP_ID、APP_SECRET
 ./start.sh
 
 # systemd 后台运行（生产用）
-sudo cp feishu-kiro-bot.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable feishu-kiro-bot
+./install.sh                          # 生成 service 文件并安装
 sudo systemctl start feishu-kiro-bot
 ```
 
