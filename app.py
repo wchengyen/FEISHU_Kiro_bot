@@ -19,6 +19,11 @@ from scheduler import Scheduler
 from session_router import SessionRouter
 from kiro_executor import KiroExecutor, has_decision_signal
 
+try:
+    from flask import Flask, request, jsonify
+except ImportError:
+    Flask = None  # webhook 功能可选
+
 ENABLE_MEMORY = os.environ.get("ENABLE_MEMORY", "false").lower() in ("true", "1", "yes")
 if ENABLE_MEMORY:
     try:
@@ -501,11 +506,146 @@ def on_message_receive(data: P2ImMessageReceiveV1) -> None:
     t.start()
 
 
+# ============ Webhook 接收 + Kiro Skill 触发（EC2 告警分析） ============
+webhook_app = Flask("kiro-ec2-webhook") if Flask else None
+
+def _trigger_ec2_skill_analysis(record: dict):
+    """将 EC2 告警数据交给 Kiro ec2-alert-analyzer skill 分析，然后推送结果"""
+    user_id = record.get("user_id") or os.environ.get("ALERT_NOTIFY_USER_ID", "system")
+
+    alert_payload = json.dumps({
+        "alert": {
+            "source": record["source"],
+            "event_type": record["event_type"],
+            "title": record["title"],
+            "description": record.get("description", ""),
+            "entities": record.get("entities", []),
+            "severity": record["severity"],
+            "timestamp": record.get("timestamp"),
+        },
+        "instruction": "请分析此 EC2 告警的根因，查询相关指标数据，给出结构化的诊断报告。",
+    }, ensure_ascii=False, indent=2)
+
+    log.info(f"触发 Kiro ec2-alert-analyzer skill: {record['title'][:50]}...")
+
+    cmd = [
+        kiro_bin, "chat", "--no-interactive", "-a", "--wrap", "never",
+        "--agent", "ec2-alert-analyzer",
+        alert_payload
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            timeout=int(os.environ.get("ALERT_ANALYZE_TIMEOUT", "300")),
+            cwd=os.path.expanduser("~"), env={**os.environ, "NO_COLOR": "1"},
+        )
+        analysis = strip_ansi(result.stdout.strip() or result.stderr.strip() or "Kiro 未返回分析结果")
+    except subprocess.TimeoutExpired:
+        analysis = "⏰ Kiro EC2 分析超时"
+    except Exception as e:
+        analysis = f"❌ Kiro 调用失败: {e}"
+        log.exception("Kiro ec2-alert-analyzer 分析失败")
+
+    header = f"🚨 EC2 自动告警分析\n\n【告警】{record['title']}\n【级别】{record['severity'].upper()}\n【来源】{record['source']}\n"
+    message = header + "\n" + analysis
+    send_message(user_id, message)
+    log.info(f"EC2 告警分析结果已推送给 {user_id}")
+
+
+def _parse_alertmanager(payload: dict) -> dict:
+    """Alertmanager webhook → Bot 标准格式"""
+    alert = payload["alerts"][0]
+    labels = {**payload.get("commonLabels", {}), **alert.get("labels", {})}
+    ann = {**payload.get("commonAnnotations", {}), **alert.get("annotations", {})}
+    instance = labels.get("instance", "unknown").split(":")[0]
+    is_resolved = alert.get("status") == "resolved"
+
+    return {
+        "ok": True,
+        "event_id": f"prom-{labels.get('alertname', 'unknown')}-{alert['startsAt'][:19]}",
+        "user_id": os.environ.get("ALERT_NOTIFY_USER_ID", "system"),
+        "event_type": "故障处理" if is_resolved else "指标异常",
+        "title": f"{'[RESOLVED] ' if is_resolved else ''}{ann.get('summary', labels.get('alertname'))}",
+        "description": ann.get("description", ""),
+        "entities": [instance, labels.get("job", "")] if labels.get("job") else [instance],
+        "source": "prometheus",
+        "severity": labels.get("severity", "medium"),
+        "timestamp": alert.get("endsAt") if is_resolved else alert["startsAt"],
+    }
+
+
+if webhook_app:
+    @webhook_app.route("/event", methods=["POST"])
+    def receive_event():
+        auth = request.headers.get("Authorization", "")
+        expected = f"Bearer {os.environ.get('WEBHOOK_TOKEN', '')}"
+        if auth != expected:
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        payload = request.get_json(silent=True) or {}
+
+        if "alerts" in payload:
+            record = _parse_alertmanager(payload)
+        else:
+            from event_ingest import webhook_handler
+            default_user = os.environ.get("ALERT_NOTIFY_USER_ID", "system")
+            record = webhook_handler(payload, default_user_id=default_user)
+
+        if not record.get("ok"):
+            return jsonify(record), 400
+
+        if event_store:
+            from event_ingest import ingest_to_store
+            result = ingest_to_store(event_store, record)
+            if not result["ok"]:
+                return jsonify(result), 500
+
+        auto_severities = os.environ.get("ALERT_AUTO_ANALYZE_SEVERITY", "high,critical").split(",")
+        if record.get("severity") in auto_severities:
+            threading.Thread(
+                target=_trigger_ec2_skill_analysis,
+                args=(record,),
+                daemon=True,
+                name=f"kiro-ec2-{record['event_id'][:8]}"
+            ).start()
+
+        return jsonify({
+            "ok": True,
+            "event_id": record["event_id"],
+            "analysis_triggered": record.get("severity") in auto_severities
+        }), 200
+
+
+    @webhook_app.route("/health", methods=["GET"])
+    def health():
+        return jsonify({
+            "status": "ok",
+            "memory_enabled": ENABLE_MEMORY,
+            "event_store": event_store is not None,
+            "webhook": True,
+        })
+
+
+def start_webhook_server():
+    if webhook_app and os.environ.get("WEBHOOK_ENABLED", "false").lower() == "true":
+        port = int(os.environ.get("WEBHOOK_PORT", "8080"))
+        host = os.environ.get("WEBHOOK_HOST", "127.0.0.1")
+        threading.Thread(
+            target=lambda: webhook_app.run(host=host, port=port, threaded=True),
+            daemon=True,
+            name="webhook-http"
+        ).start()
+        log.info(f"🌐 Webhook HTTP 监听 {host}:{port}/event (ec2-alert-analyzer)")
+
+
 # ============ 启动 ============
 if __name__ == "__main__":
     if not APP_ID or not APP_SECRET:
         log.error("⚠️  FEISHU_APP_ID / FEISHU_APP_SECRET 未设置")
         exit(1)
+
+    start_webhook_server()
 
     # 注册事件处理器
     handler = lark.EventDispatcherHandler.builder("", "") \
@@ -514,5 +654,5 @@ if __name__ == "__main__":
 
     # WebSocket 长连接模式启动
     cli = lark.ws.Client(APP_ID, APP_SECRET, event_handler=handler, log_level=lark.LogLevel.INFO)
-    log.info("🚀 飞书-Kiro 桥接服务启动（WebSocket 长连接模式，无需公网IP）")
+    log.info("🚀 飞书-Kiro 桥接服务启动（WebSocket + Webhook 双模）")
     cli.start()

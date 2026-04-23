@@ -31,6 +31,7 @@
 | 📎 **自动资源上传** | 检测 Kiro 输出中的图片/文件路径，自动上传飞书 |
 | ⏰ **定时任务** | 自然语言配置周期性任务，`/schedule` 命令管理 |
 | 📝 **事件录入** | `/event` 手动录入 + Webhook 外部系统推送 |
+| 🚨 **EC2 告警分析** | Prometheus/CloudWatch 告警自动触发 Kiro Skill 分析并推送飞书 |
 
 ---
 
@@ -189,6 +190,187 @@ sudo journalctl -u feishu-kiro-bot -f
 | `/memory clear` | 清除语义记忆 |
 | `/memory events` | 查看最近 30 天事件 |
 | `/memory events clear` | 清空事件记录 |
+
+---
+
+## 🚨 EC2 告警自动分析（Webhook + Kiro Skill）
+
+接收 Prometheus/CloudWatch 等监控系统的 EC2 告警，自动触发 Kiro `ec2-alert-analyzer` skill 进行根因分析，并将结果主动推送到飞书。
+
+### 架构流程
+
+```
+┌─────────────────┐     webhook POST      ┌─────────────────┐
+│  Prometheus     │ ─────────────────────>│                 │
+│  Alertmanager   │   Bearer Token + JSON │  feishu-kiro-bot│
+│  (or CloudWatch │                       │   :8080/event   │
+│   via Lambda)   │                       │                 │
+└─────────────────┘                       └────────┬────────┘
+                                                   │
+                              ┌────────────────────┼────────────────────┐
+                              ↓                    ↓                    ↓
+                       ┌────────────┐      ┌────────────┐      ┌────────────┐
+                       │ 事件入库    │      │ severity   │      │ 低级别告警  │
+                       │ events.db  │      │ >= high?   │      │ 仅入库      │
+                       └────────────┘      └─────┬──────┘      └────────────┘
+                                                 │
+                                                 ↓ 是
+                                    ┌────────────────────────┐
+                                    │ Kiro ec2-alert-analyzer│
+                                    │   skill 自主查指标      │
+                                    │  • CloudWatch CLI      │
+                                    │  • Prometheus API      │
+                                    │  • 根因诊断 + 建议      │
+                                    └───────────┬────────────┘
+                                                │
+                                                ↓ 分析结果
+                                    ┌────────────────────────┐
+                                    │  send_message()        │
+                                    │  主动推送飞书用户       │
+                                    └────────────────────────┘
+```
+
+**设计原则**：Bot 只做网关（收告警 → 转给 Kiro → 推结果），所有分析逻辑下沉到 Kiro Skill 中。
+
+### 配置方式
+
+#### 1. 环境变量（`.env`）
+
+```bash
+# === Webhook 告警接收 ===
+WEBHOOK_ENABLED=true
+WEBHOOK_PORT=8080
+WEBHOOK_HOST=127.0.0.1          # 127.0.0.1=仅本机, 0.0.0.0=全网卡
+WEBHOOK_TOKEN=change-me-secret
+
+# === 主动告警推送 ===
+ALERT_NOTIFY_USER_ID=ou_xxxxxxxxxxxxxxxx    # Feishu open_id
+ALERT_AUTO_ANALYZE_SEVERITY=high,critical   # 哪些级别触发自动分析
+ALERT_ANALYZE_TIMEOUT=300                   # Kiro 分析超时（秒）
+```
+
+#### 2. Prometheus Alertmanager 配置
+
+```yaml
+# alertmanager.yml
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'instance']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'feishu-kiro-bot'
+
+receivers:
+  - name: 'feishu-kiro-bot'
+    webhook_configs:
+      - url: 'http://bot.internal:8080/event'
+        http_config:
+          bearer_token: 'change-me-secret'
+        send_resolved: true
+```
+
+Alertmanager 原生推送的 JSON 会被 Bot **自动识别并转换**为标准格式，无需额外适配。
+
+#### 3. CloudWatch 中转（Lambda）
+
+CloudWatch Alarm 通过 SNS → Lambda 中转为 Bot 标准 JSON 格式，详见 `.kiro/skills/ec2-alert-analyzer/SKILL.md`。
+
+### 告警分级响应
+
+| Severity | 行为 |
+|----------|------|
+| `critical` / `high` | 自动触发 Kiro skill 分析 + 主动飞书推送 |
+| `medium` / `low` | 仅入库，用户后续可主动询问 |
+
+### 测试验证
+
+```bash
+# 1. 健康检查
+curl http://localhost:8080/health
+# {"status": "ok", "event_store": true, "webhook": true}
+
+# 2. 模拟 Prometheus Critical 告警（触发自动分析）
+curl -X POST http://localhost:8080/event \
+  -H "Authorization: Bearer change-me-secret" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "prom-ec2-cpu-001",
+    "event_type": "指标异常",
+    "title": "test1 EC2 CPU usage > 80%",
+    "description": "CPU utilization is 85.2%",
+    "entities": ["test1", "i-0abcd1234"],
+    "source": "prometheus",
+    "severity": "critical",
+    "timestamp": "2026-04-23T10:00:00Z"
+  }'
+# {"ok": true, "event_id": "prom-ec2-cpu-001", "analysis_triggered": true}
+
+# 3. 模拟 Alertmanager 格式
+curl -X POST http://localhost:8080/event \
+  -H "Authorization: Bearer change-me-secret" \
+  -d '{"version":"4","status":"firing","commonLabels":{"alertname":"HighMemoryUsage","instance":"test2:9100","severity":"high"},"commonAnnotations":{"summary":"test2 memory usage > 90%"},"alerts":[{"status":"firing","startsAt":"2026-04-23T11:00:00.000Z"}]}'
+# {"ok": true, "event_id": "prom-HighMemoryUsage-2026-04-23T11:00:00", "analysis_triggered": true}
+
+# 4. 低级别告警（不触发分析）
+curl ... -d '{"id":"prom-disk-low-001","severity":"low","title":"disk 60%"}'
+# {"ok": true, "analysis_triggered": false}
+
+# 5. 鉴权失败
+curl -H "Authorization: Bearer wrong-token" ...
+# 401 Unauthorized
+
+# 6. 幂等重试
+curl ... -d '{"id":"same-id","severity":"low"}'   # 第一次：入库
+# 返回 {"ok": true}
+curl ... -d '{"id":"same-id","severity":"low"}'   # 第二次：跳过
+# 返回 {"ok": true}（数据库无重复记录）
+```
+
+### Kiro Skill 自主分析示例
+
+当收到 `test1 EC2 CPU usage > 80%` 告警时，Kiro `ec2-alert-analyzer` skill 会自主执行：
+
+```bash
+# 查询 CloudWatch CPU 趋势
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/EC2 --metric-name CPUUtilization \
+  --dimensions Name=InstanceId,Value=i-0abcd1234 \
+  --start-time ... --end-time ... --period 300 --statistics Average Maximum
+
+# 或查询 Prometheus node_exporter
+curl -s 'http://prometheus:9090/api/v1/query?query=100-avg(irate(node_cpu_seconds_total{mode="idle",instance=~"test1:9100"}[5m]))*100'
+```
+
+最终输出结构化中文报告：
+
+```
+═══════════════════════════════════════════════
+  EC2 告警分析报告
+═══════════════════════════════════════════════
+
+实例:       test1 (i-0abcd1234)
+告警类型:    CPU
+严重级别:    CRITICAL
+
+【现象】
+test1 EC2 CPU usage > 80%
+
+【根因分析】
+过去 1 小时 CPU 均值 82%，峰值 91%，持续恶化...
+
+【建议措施】
+1. 执行 top / pidstat 定位高 CPU 进程
+2. 检查最近是否有新部署
+3. 考虑扩容或优化代码
+
+【相关指标】
+- CPU Utilization (avg 1h): 82.3%
+- Load Average: 4.2 (4 cores)
+═══════════════════════════════════════════════
+```
 
 ---
 
