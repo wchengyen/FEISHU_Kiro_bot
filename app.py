@@ -33,6 +33,7 @@ APP_ID = os.environ.get("FEISHU_APP_ID", "")
 APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "")
 KIRO_TIMEOUT = int(os.environ.get("KIRO_TIMEOUT", "120"))
 KIRO_AGENT = os.environ.get("KIRO_AGENT", "").strip()
+GROUP_AT_ONLY = os.environ.get("GROUP_AT_ONLY", "true").lower() in ("true", "1", "yes")
 
 # ============ 日志 ============
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -394,6 +395,10 @@ def on_message_receive(data: P2ImMessageReceiveV1) -> None:
         _processed.add(message_id)
         if len(_processed) > 1000:
             _processed.clear()
+
+    # 群聊中是否只响应 @机器人 的消息
+    if GROUP_AT_ONLY and message.chat_type == "group" and not data.event.message.mentions:
+        return
 
     # 只处理文本
     if msg_type != "text":
