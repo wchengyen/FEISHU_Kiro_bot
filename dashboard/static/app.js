@@ -225,20 +225,19 @@ const EventsPage = {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>时间</th><th>标题</th><th>Type</th><th>Source</th><th>Severity</th><th>Entities</th><th>描述</th><th>操作</th></tr></thead>
+          <thead><tr><th>时间</th><th>标题</th><th>Type</th><th>Source</th><th>Severity</th><th>Entities</th><th>描述</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="e in events" :key="e.id">
-              <td>{{ e.id }}</td>
               <td>{{ e.ts }}</td>
               <td>{{ e.title }}</td>
               <td>{{ e.event_type || "-" }}</td>
               <td>{{ e.source }}</td>
               <td><span :class="'badge badge-' + e.severity">{{ e.severity }}</span></td>
-              <td><code class="tag">{{ fmtEntities(e.entities) }}</code></td>
+              <td><code class="tag">{{ fmtEntityPair(e) }}</code></td>
               <td>{{ e.description }}</td>
               <td><button class="danger" @click="remove(e.id)">删除</button></td>
             </tr>
-            <tr v-if="events.length === 0"><td colspan="9" class="empty">暂无数据</td></tr>
+            <tr v-if="events.length === 0"><td colspan="8" class="empty">暂无数据</td></tr>
           </tbody>
         </table>
       </div>
@@ -270,13 +269,33 @@ const EventsPage = {
     const showModal = ref(false);
     const form = reactive({ title: "", event_type: "", source: "", severity: "medium", description: "", entities_raw: "" });
 
-    function fmtEntities(entities) {
-      if (!entities) return "-";
+    function fmtServiceName(event) {
+      const title = (event.title || "").toLowerCase();
+      const type = (event.event_type || "").toLowerCase();
+      const source = (event.source || "").toLowerCase();
+      if (title.includes("rds") || type.includes("rds")) return "RDS";
+      if (title.includes("ec2") || title.includes("cpu") || title.includes("memory") || title.includes("disk") || title.includes("node")) return "EC2";
+      if (source.includes("jenkins")) return "CI/CD";
+      if (source.includes("prometheus")) return "EC2";
+      if (source.includes("cloudwatch")) return "CloudWatch";
+      return source ? source.charAt(0).toUpperCase() + source.slice(1) : "-";
+    }
+    function fmtEntityName(event) {
+      let entities = event.entities;
+      if (!entities) {
+        const m = (event.title || "").match(/^(\S+)/);
+        return m ? m[1] : "-";
+      }
       if (typeof entities === "string") {
         try { entities = JSON.parse(entities); } catch { return entities; }
       }
-      if (Array.isArray(entities)) return entities.join(", ");
-      return String(entities);
+      if (Array.isArray(entities) && entities.length > 0) return entities[0];
+      return "-";
+    }
+    function fmtEntityPair(event) {
+      const svc = fmtServiceName(event);
+      const name = fmtEntityName(event);
+      return `(${svc}, ${name})`;
     }
     async function load() {
       const qs = new URLSearchParams();
@@ -321,7 +340,7 @@ const EventsPage = {
       load();
     }
     onMounted(load);
-    return { events, filter, load, reset, remove, showModal, form, openModal, closeModal, save, fmtEntities };
+    return { events, filter, load, reset, remove, showModal, form, openModal, closeModal, save, fmtEntityPair };
   }
 };
 
