@@ -178,3 +178,76 @@ class Scheduler:
                     self._save()
                     return f"🗑️ 定时任务 #{job_id} 已删除"
         return f"❌ 未找到任务 #{job_id}"
+
+    # ---- Dashboard CRUD API ----
+    def list_jobs(self, user_id: str):
+        """Return list of job dicts.  user_id='all' returns every job."""
+        with self._lock:
+            if user_id == "all":
+                jobs = self._jobs[:]
+            else:
+                jobs = [j for j in self._jobs if j.user_id == user_id]
+            return [asdict(j) for j in jobs]
+
+    def add_job(self, user_id: str, frequency: str, time_str: str, prompt: str) -> int:
+        """Create a new scheduled job and return its id."""
+        with self._lock:
+            job = ScheduledJob(
+                id=self._next_id,
+                user_id=user_id,
+                frequency=frequency,
+                time_str=time_str,
+                prompt=prompt,
+            )
+            self._jobs.append(job)
+            self._next_id += 1
+            self._register_job(job)
+            self._save()
+            return job.id
+
+    def enable_job(self, job_id: int) -> bool:
+        with self._lock:
+            for j in self._jobs:
+                if j.id == job_id:
+                    j.enabled = True
+                    self._register_job(j)
+                    self._save()
+                    return True
+            return False
+
+    def disable_job(self, job_id: int) -> bool:
+        with self._lock:
+            for j in self._jobs:
+                if j.id == job_id:
+                    j.enabled = False
+                    schedule.clear(f"job_{job_id}")
+                    self._save()
+                    return True
+            return False
+
+    def edit_job(self, job_id: int, updates: dict) -> bool:
+        with self._lock:
+            for j in self._jobs:
+                if j.id == job_id:
+                    if "frequency" in updates:
+                        j.frequency = updates["frequency"]
+                    if "time_str" in updates:
+                        j.time_str = updates["time_str"]
+                    if "prompt" in updates:
+                        j.prompt = updates["prompt"]
+                    if j.enabled:
+                        schedule.clear(f"job_{job_id}")
+                        self._register_job(j)
+                    self._save()
+                    return True
+            return False
+
+    def delete_job(self, job_id: int) -> bool:
+        with self._lock:
+            for idx, j in enumerate(self._jobs):
+                if j.id == job_id:
+                    schedule.clear(f"job_{job_id}")
+                    self._jobs.pop(idx)
+                    self._save()
+                    return True
+            return False

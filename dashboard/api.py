@@ -135,3 +135,57 @@ def delete_event(event_id):
         conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
         conn.commit()
     return jsonify({"ok": True})
+
+
+# ---- Scheduler CRUD ----
+
+@dashboard_bp.route("/api/dashboard/scheduler", methods=["GET"])
+@require_auth
+def get_scheduler():
+    from scheduler import Scheduler
+
+    sched = Scheduler(send_fn=lambda *a, **k: None, kiro_fn=lambda *a, **k: "")
+    return jsonify({"ok": True, "jobs": sched.list_jobs("all")})
+
+
+@dashboard_bp.route("/api/dashboard/scheduler", methods=["POST"])
+@require_auth
+def post_scheduler():
+    from scheduler import Scheduler
+
+    body = request.get_json(silent=True) or {}
+    sched = Scheduler(send_fn=lambda *a, **k: None, kiro_fn=lambda *a, **k: "")
+    result = sched.add_job(
+        user_id=body.get("user_id", "system"),
+        frequency=body.get("frequency", "每天"),
+        time_str=body.get("time_str", "09:00"),
+        prompt=body.get("prompt", ""),
+    )
+    return jsonify({"ok": True, "job_id": result})
+
+
+@dashboard_bp.route("/api/dashboard/scheduler/<int:job_id>", methods=["PUT"])
+@require_auth
+def put_scheduler(job_id):
+    from scheduler import Scheduler
+
+    body = request.get_json(silent=True) or {}
+    sched = Scheduler(send_fn=lambda *a, **k: None, kiro_fn=lambda *a, **k: "")
+    if "enabled" in body:
+        if body["enabled"]:
+            sched.enable_job(job_id)
+        else:
+            sched.disable_job(job_id)
+    if any(k in body for k in ("frequency", "time_str", "prompt")):
+        sched.edit_job(job_id, body)
+    return jsonify({"ok": True})
+
+
+@dashboard_bp.route("/api/dashboard/scheduler/<int:job_id>", methods=["DELETE"])
+@require_auth
+def delete_scheduler(job_id):
+    from scheduler import Scheduler
+
+    sched = Scheduler(send_fn=lambda *a, **k: None, kiro_fn=lambda *a, **k: "")
+    sched.delete_job(job_id)
+    return jsonify({"ok": True})
