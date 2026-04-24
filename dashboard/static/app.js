@@ -200,6 +200,21 @@ const EventsPage = {
   template: `
     <div>
       <h2 class="page-title">Events</h2>
+
+      <!-- 说明卡片 -->
+      <div class="info-cards">
+        <div class="info-card">
+          <h4>🚨 分级响应标准</h4>
+          <p><span class="badge badge-critical">critical</span> <span class="badge badge-high">high</span> → 自动触发 Kiro <code>ec2-alert-analyzer</code> 分析 + 飞书主动推送</p>
+          <p><span class="badge badge-medium">medium</span> <span class="badge badge-low">low</span> → 仅入库，不触发自动分析</p>
+        </div>
+        <div class="info-card">
+          <h4>🏷️ Event Type 判断</h4>
+          <p><b>Webhook 推送</b>：由外部系统（Prometheus / Jenkins / CloudWatch 等）在 payload 中 <code>event_type</code> 字段指定</p>
+          <p><b>手动录入</b>：<code>/event 类型=xxx</code> 指定；未指定时默认为「手动记录」</p>
+        </div>
+      </div>
+
       <div class="toolbar">
         <select v-model="filter.severity"><option value="">全部严重级别</option><option>critical</option><option>high</option><option>medium</option><option>low</option></select>
         <input v-model="filter.source" placeholder="Source" />
@@ -210,18 +225,20 @@ const EventsPage = {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>时间</th><th>标题</th><th>Source</th><th>Severity</th><th>描述</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>时间</th><th>标题</th><th>Type</th><th>Source</th><th>Severity</th><th>Entities</th><th>描述</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="e in events" :key="e.id">
               <td>{{ e.id }}</td>
               <td>{{ e.ts }}</td>
               <td>{{ e.title }}</td>
+              <td>{{ e.event_type || "-" }}</td>
               <td>{{ e.source }}</td>
               <td><span :class="'badge badge-' + e.severity">{{ e.severity }}</span></td>
+              <td><code class="tag">{{ fmtEntities(e.entities) }}</code></td>
               <td>{{ e.description }}</td>
               <td><button class="danger" @click="remove(e.id)">删除</button></td>
             </tr>
-            <tr v-if="events.length === 0"><td colspan="7" class="empty">暂无数据</td></tr>
+            <tr v-if="events.length === 0"><td colspan="9" class="empty">暂无数据</td></tr>
           </tbody>
         </table>
       </div>
@@ -230,11 +247,13 @@ const EventsPage = {
         <div class="modal">
           <div class="modal-header"><h3>新建 Event</h3><button class="close" @click="closeModal">&times;</button></div>
           <div class="modal-body">
-            <div class="field"><label>Title</label><input v-model="form.title" /></div>
-            <div class="field"><label>Source</label><input v-model="form.source" /></div>
+            <div class="field"><label>Title *</label><input v-model="form.title" /></div>
+            <div class="field"><label>Event Type *</label><input v-model="form.event_type" placeholder="如: 指标异常 / 应用发版 / 系统变更" /></div>
+            <div class="field"><label>Source</label><input v-model="form.source" placeholder="如: prometheus / jenkins" /></div>
             <div class="field"><label>Severity</label>
               <select v-model="form.severity"><option>critical</option><option>high</option><option>medium</option><option>low</option></select>
             </div>
+            <div class="field"><label>Entities（逗号分隔）</label><input v-model="form.entities_raw" placeholder="如: test1, node-exporter" /></div>
             <div class="field"><label>Description</label><textarea v-model="form.description"></textarea></div>
           </div>
           <div class="modal-footer">
@@ -249,8 +268,16 @@ const EventsPage = {
     const events = ref([]);
     const filter = reactive({ severity: "", source: "", q: "" });
     const showModal = ref(false);
-    const form = reactive({ title: "", source: "", severity: "medium", description: "" });
+    const form = reactive({ title: "", event_type: "", source: "", severity: "medium", description: "", entities_raw: "" });
 
+    function fmtEntities(entities) {
+      if (!entities) return "-";
+      if (typeof entities === "string") {
+        try { entities = JSON.parse(entities); } catch { return entities; }
+      }
+      if (Array.isArray(entities)) return entities.join(", ");
+      return String(entities);
+    }
     async function load() {
       const qs = new URLSearchParams();
       if (filter.severity) qs.append("severity", filter.severity);
@@ -272,19 +299,29 @@ const EventsPage = {
     }
     function openModal() {
       form.title = "";
+      form.event_type = "";
       form.source = "";
       form.severity = "medium";
       form.description = "";
+      form.entities_raw = "";
       showModal.value = true;
     }
     function closeModal() { showModal.value = false; }
     async function save() {
-      await api("/events", { method: "POST", body: form });
+      const body = {
+        title: form.title,
+        event_type: form.event_type,
+        source: form.source || "manual",
+        severity: form.severity,
+        description: form.description,
+        entities: form.entities_raw ? form.entities_raw.split(",").map(s => s.trim()).filter(Boolean) : [],
+      };
+      await api("/events", { method: "POST", body });
       closeModal();
       load();
     }
     onMounted(load);
-    return { events, filter, load, reset, remove, showModal, form, openModal, closeModal, save };
+    return { events, filter, load, reset, remove, showModal, form, openModal, closeModal, save, fmtEntities };
   }
 };
 
