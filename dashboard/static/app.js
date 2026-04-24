@@ -66,7 +66,7 @@ const LoginPage = {
       error.value = "";
       try {
         await api("/auth", { method: "POST", body: { token: token.value } });
-        window.location.reload();
+        window.location.href = "/dashboard/#/";
       } catch (e) {
         error.value = e.message || "登录失败";
       }

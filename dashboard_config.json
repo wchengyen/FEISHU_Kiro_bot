@@ -1,0 +1,14 @@
+{
+  "mappings": [
+    {
+      "source": "prometheus",
+      "severity": "high",
+      "agent": "ec2-alert-analyzer"
+    },
+    {
+      "source": "prometheus",
+      "severity": "critical",
+      "agent": "ec2-alert-analyzer"
+    }
+  ]
+}
