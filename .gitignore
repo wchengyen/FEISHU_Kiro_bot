@@ -8,3 +8,4 @@ scheduled_jobs.json
 user_sessions.json
 .kiro/
 events.db
+.worktrees/
