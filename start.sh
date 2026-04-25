@@ -1,24 +1,20 @@
 #!/bin/bash
-# 启动飞书-Kiro 桥接服务（WebSocket 长连接模式）
 set -e
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# 加载环境变量
 if [ -f .env ]; then
     export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
 fi
 
-# 检查必要配置
-if [ -z "$FEISHU_APP_ID" ] || [ -z "$FEISHU_APP_SECRET" ]; then
-    echo "❌ 请先配置 .env 文件（参考 .env.example）"
+# 飞书可选，微信可扫码
+if [ -z "$FEISHU_APP_ID" ] && [ -z "$WEIXIN_BOT_TOKEN" ] && [ ! -f "$HOME/.kiro/weixin_token.json" ]; then
+    echo "⚠️  未配置任何平台（飞书或微信），请检查 .env"
     exit 1
 fi
 
-echo "🚀 启动飞书-Kiro 桥接服务（WebSocket 长连接，无需公网IP）"
-# 优先使用本地 venv，没有则用系统 Python
+echo "🚀 启动 kiro-devops gateway（飞书 + 微信 + Webhook）"
 if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
     source "$SCRIPT_DIR/venv/bin/activate"
 fi
-python3 app.py
+python3 gateway.py
