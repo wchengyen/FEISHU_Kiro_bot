@@ -1,16 +1,17 @@
 [Unit]
-Description=Feishu Kiro Bot Bridge (WebSocket)
+Description=kiro-devops gateway (Feishu + WeChat + Webhook)
 After=network.target
 
 [Service]
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/kiro-devops
-EnvironmentFile=/home/ubuntu/kiro-devops/.env
 Environment=PATH=/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/usr/bin/python3 /home/ubuntu/kiro-devops/app.py
+ExecStart=/home/ubuntu/kiro-devops/start.sh
 Restart=always
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

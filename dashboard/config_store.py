@@ -34,10 +34,18 @@ class ConfigStore:
         with open(self.mappings_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+    def _strip_export(self, key: str) -> tuple[str, bool]:
+        """Remove 'export ' prefix if present. Returns (clean_key, had_export)."""
+        key = key.strip()
+        if key.startswith("export "):
+            return key[7:].strip(), True
+        return key, False
+
     def read_core_config(self) -> dict:
         """Read .env and return dict of CORE_KEYS values.
 
         Missing keys return empty string. Sensitive keys are NOT masked here.
+        Supports both KEY=value and export KEY=value formats.
         """
         values = {key: "" for key in CORE_KEYS}
         if os.path.exists(self.env_path):
@@ -48,15 +56,16 @@ class ConfigStore:
                         continue
                     if "=" in line:
                         key, _, value = line.partition("=")
-                        key = key.strip()
+                        key, _ = self._strip_export(key)
                         if key in values:
                             values[key] = value.strip()
         return values
 
     def write_core_config(self, updates: dict) -> None:
-        """Write updates back to .env, preserving existing lines and comments."""
+        """Write updates back to .env, preserving existing lines, comments and export prefix."""
         lines = []
         existing_keys = set()
+        export_prefixes: dict[str, bool] = {}  # key -> whether original used 'export'
 
         if os.path.exists(self.env_path):
             with open(self.env_path, "r", encoding="utf-8") as f:
@@ -67,10 +76,13 @@ class ConfigStore:
                         lines.append(original_line)
                         continue
                     if "=" in stripped:
-                        key, _, _ = stripped.partition("=")
-                        key = key.strip()
+                        raw_key, _, _ = stripped.partition("=")
+                        raw_key = raw_key.strip()
+                        key, had_export = self._strip_export(raw_key)
+                        export_prefixes[key] = had_export
                         if key in updates:
-                            lines.append(f"{key}={updates[key]}\n")
+                            prefix = "export " if had_export else ""
+                            lines.append(f"{prefix}{key}={updates[key]}\n")
                             existing_keys.add(key)
                         else:
                             lines.append(original_line)
@@ -80,7 +92,8 @@ class ConfigStore:
         # Append any keys not already present
         for key, value in updates.items():
             if key not in existing_keys:
-                lines.append(f"{key}={value}\n")
+                prefix = "export " if export_prefixes.get(key, False) else ""
+                lines.append(f"{prefix}{key}={value}\n")
 
         with open(self.env_path, "w", encoding="utf-8") as f:
             f.writelines(lines)
