@@ -154,7 +154,7 @@ class WeixinAdapter(PlatformAdapter):
                 )
                 consecutive_errors = 0
 
-                if resp.get("ret") != 0:
+                if resp.get("ret", 0) != 0:
                     err = resp.get("errcode")
                     if err == -14:
                         log.warning("微信 session 过期，重新登录...")
