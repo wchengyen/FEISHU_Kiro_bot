@@ -10,6 +10,7 @@ from dashboard.kiro_scanner import list_agents, list_skills
 from dashboard.config_store import ConfigStore, CORE_KEYS
 from event_ingest import webhook_handler, ingest_to_store
 from event_store import EventStore
+from dashboard.resources import get_all_resources_with_metrics
 
 
 SENSITIVE_KEYS = {"WEBHOOK_TOKEN", "DASHBOARD_TOKEN"}
@@ -214,4 +215,44 @@ def delete_scheduler(job_id):
 
     sched = Scheduler(send_fn=lambda *a, **k: None, kiro_fn=lambda *a, **k: "")
     sched.delete_job(job_id)
+    return jsonify({"ok": True})
+
+
+@dashboard_bp.route("/api/dashboard/resources", methods=["GET"])
+@require_auth
+def get_resources():
+    refresh = request.args.get("refresh") == "1"
+    resource_type = request.args.get("type", "")
+    try:
+        data = get_all_resources_with_metrics(refresh=refresh)
+        resources = data.get("resources", [])
+        if resource_type:
+            resources = [r for r in resources if r["type"] == resource_type]
+        store = ConfigStore()
+        pins = store.read_pinned_resources()
+        return jsonify({
+            "ok": True,
+            "resources": resources,
+            "pinned": pins,
+            "cached": data.get("cached", False),
+            "error": data.get("error"),
+        })
+    except Exception as e:
+        return jsonify({"ok": True, "resources": [], "pinned": [], "error": str(e)}), 200
+
+
+@dashboard_bp.route("/api/dashboard/resources/pins", methods=["GET"])
+@require_auth
+def get_resource_pins():
+    store = ConfigStore()
+    return jsonify({"ok": True, "pins": store.read_pinned_resources()})
+
+
+@dashboard_bp.route("/api/dashboard/resources/pins", methods=["POST"])
+@require_auth
+def set_resource_pins():
+    body = request.get_json(force=True) or {}
+    pins = body.get("pins", [])
+    store = ConfigStore()
+    store.write_pinned_resources(pins)
     return jsonify({"ok": True})
