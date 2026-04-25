@@ -67,3 +67,27 @@ def discover_rds():
 
 def discover_all():
     return discover_ec2() + discover_rds()
+
+
+import datetime
+
+
+def get_cloudwatch_cpu(resource_id, namespace, dimension_name, days=7):
+    try:
+        import boto3
+    except ImportError:
+        return []
+    client = boto3.client("cloudwatch")
+    end = datetime.datetime.utcnow()
+    start = end - datetime.timedelta(days=days)
+    resp = client.get_metric_statistics(
+        Namespace=namespace,
+        MetricName="CPUUtilization",
+        Dimensions=[{"Name": dimension_name, "Value": resource_id}],
+        StartTime=start,
+        EndTime=end,
+        Period=86400,
+        Statistics=["Average"],
+    )
+    points = sorted(resp.get("Datapoints", []), key=lambda x: x["Timestamp"])
+    return [round(p["Average"], 1) for p in points]
