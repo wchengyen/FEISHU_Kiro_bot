@@ -1,4 +1,5 @@
 .env
+.env.backup
 __pycache__/
 *.pyc
 memory_db/
@@ -9,3 +10,4 @@ user_sessions.json
 .kiro/
 events.db
 .worktrees/
+weixin_qrcode.png

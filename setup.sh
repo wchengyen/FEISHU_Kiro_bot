@@ -272,11 +272,18 @@ setup_webhook() {
         if [ -z "$current_token" ]; then
             current_token=$(openssl rand -hex 16 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
         fi
-        read -p "Webhook Token (用于鉴权) [当前: ${current_token}]: " token
+        info "说明：WEBHOOK_TOKEN 用于外部系统（Prometheus Alertmanager / CloudWatch Lambda / Jenkins 等）调用 Webhook 时鉴权"
+        info "      在 Prometheus alertmanager.yml 中配置：bearer_token: '<此处的 token>'"
+        read -p "Webhook Token (外部系统调用鉴权) [当前: ${current_token}]: " token
         token=${token:-$current_token}
         update_env_var "WEBHOOK_TOKEN" "$token"
 
         success "Webhook 已启用，地址: http://${host}:${port}/event"
+        info "Prometheus 示例："
+        info "  webhook_configs:"
+        info "    - url: 'http://${host}:${port}/event'"
+        info "      http_config:"
+        info "        bearer_token: '${token}'"
     else
         update_env_var "WEBHOOK_ENABLED" "false"
         info "Webhook 已关闭"
@@ -292,26 +299,123 @@ setup_alert() {
     local current_targets
     current_targets=$(get_env_var "ALERT_NOTIFY_TARGETS" "")
 
-    echo "告警触发后，分析结果会推送到以下目标"
-    echo "格式: feishu:ou_xxx,weixin:wxid_xxx@im.wechat"
+    # 检测已配置的平台
+    local has_feishu has_weixin
+    has_feishu=$(get_env_var "FEISHU_APP_ID" "")
+    if [ -f "$HOME/.kiro/weixin_token.json" ]; then
+        has_weixin="yes"
+    fi
+
+    echo "告警触发后，分析结果会自动推送到以下目标"
     echo ""
 
     if [ -n "$current_targets" ]; then
         info "当前推送目标: ${current_targets}"
     fi
 
-    read -p "告警推送目标（逗号分隔多个，留空不推送）: " targets
-    if [ -n "$targets" ]; then
-        update_env_var "ALERT_NOTIFY_TARGETS" "$targets"
-        success "告警推送目标已设置"
-    else
-        # 兼容旧配置
+    # 构建选项菜单
+    local options=""
+    local opt_idx=1
+    local opt_feishu="" opt_weixin="" opt_both=""
+
+    if [ -n "$has_feishu" ]; then
+        options="${options}\n  ${opt_idx}) 仅飞书推送"
+        opt_feishu=$opt_idx
+        opt_idx=$((opt_idx + 1))
+    fi
+    if [ -n "$has_weixin" ]; then
+        options="${options}\n  ${opt_idx}) 仅微信推送"
+        opt_weixin=$opt_idx
+        opt_idx=$((opt_idx + 1))
+    fi
+    if [ -n "$has_feishu" ] && [ -n "$has_weixin" ]; then
+        options="${options}\n  ${opt_idx}) 飞书 + 微信同时推送"
+        opt_both=$opt_idx
+        opt_idx=$((opt_idx + 1))
+    fi
+    options="${options}\n  ${opt_idx}) 不推送"
+    local opt_none=$opt_idx
+
+    if [ -z "$has_feishu" ] && [ -z "$has_weixin" ]; then
+        warn "尚未配置飞书或微信，请先完成平台配置后再设置告警推送"
+        return 0
+    fi
+
+    printf "%b\n" "${options}"
+    read -p "请选择推送方式: " choice
+
+    local targets=""
+
+    if [ "$choice" = "$opt_feishu" ]; then
+        # 仅飞书
         local old_user_id
         old_user_id=$(get_env_var "ALERT_NOTIFY_USER_ID" "")
+        local default_id=""
         if [ -n "$old_user_id" ]; then
-            update_env_var "ALERT_NOTIFY_TARGETS" "feishu:${old_user_id}"
-            info "已迁移旧配置 ALERT_NOTIFY_USER_ID → ALERT_NOTIFY_TARGETS"
+            default_id="$old_user_id"
+        elif [ -n "$current_targets" ]; then
+            # 尝试从当前 targets 提取飞书 ID
+            default_id=$(echo "$current_targets" | grep -o 'feishu:[^,]*' | sed 's/feishu://')
         fi
+        read -p "飞书用户 Open ID (ou_xxx) [当前: ${default_id:-无}]: " fid
+        fid=${fid:-$default_id}
+        if [ -n "$fid" ]; then
+            targets="feishu:${fid}"
+        fi
+
+    elif [ "$choice" = "$opt_weixin" ]; then
+        # 仅微信
+        local default_wid=""
+        if [ -n "$current_targets" ]; then
+            default_wid=$(echo "$current_targets" | grep -o 'weixin:[^,]*' | sed 's/weixin://')
+        fi
+        read -p "微信用户 ID (wxid_xxx@im.wechat) [当前: ${default_wid:-无}]: " wid
+        wid=${wid:-$default_wid}
+        if [ -n "$wid" ]; then
+            targets="weixin:${wid}"
+        fi
+
+    elif [ "$choice" = "$opt_both" ]; then
+        # 飞书 + 微信
+        local old_user_id
+        old_user_id=$(get_env_var "ALERT_NOTIFY_USER_ID" "")
+        local default_fid=""
+        if [ -n "$old_user_id" ]; then
+            default_fid="$old_user_id"
+        elif [ -n "$current_targets" ]; then
+            default_fid=$(echo "$current_targets" | grep -o 'feishu:[^,]*' | sed 's/feishu://')
+        fi
+        read -p "飞书用户 Open ID (ou_xxx) [当前: ${default_fid:-无}]: " fid
+        fid=${fid:-$default_fid}
+
+        local default_wid=""
+        if [ -n "$current_targets" ]; then
+            default_wid=$(echo "$current_targets" | grep -o 'weixin:[^,]*' | sed 's/weixin://')
+        fi
+        read -p "微信用户 ID (wxid_xxx@im.wechat) [当前: ${default_wid:-无}]: " wid
+        wid=${wid:-$default_wid}
+
+        if [ -n "$fid" ] && [ -n "$wid" ]; then
+            targets="feishu:${fid},weixin:${wid}"
+        elif [ -n "$fid" ]; then
+            targets="feishu:${fid}"
+        elif [ -n "$wid" ]; then
+            targets="weixin:${wid}"
+        fi
+
+    elif [ "$choice" = "$opt_none" ]; then
+        targets=""
+        info "告警推送已关闭"
+    else
+        warn "无效选项，保持当前配置"
+        return 0
+    fi
+
+    if [ -n "$targets" ]; then
+        update_env_var "ALERT_NOTIFY_TARGETS" "$targets"
+        success "告警推送目标已设置: ${targets}"
+    else
+        update_env_var "ALERT_NOTIFY_TARGETS" ""
     fi
 
     local current_severity
