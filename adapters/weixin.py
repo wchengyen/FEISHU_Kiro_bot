@@ -233,7 +233,7 @@ class WeixinAdapter(PlatformAdapter):
             }
             try:
                 resp = _post("ilink/bot/sendmessage", self.base_url, self.bot_token, body)
-                if resp.get("ret") != 0:
+                if resp.get("ret", 0) != 0:
                     log.error(f"微信发送失败: {resp}")
             except Exception as e:
                 log.error(f"微信发送异常: {e}")
