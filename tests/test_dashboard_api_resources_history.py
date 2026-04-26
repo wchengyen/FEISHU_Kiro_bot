@@ -33,7 +33,7 @@ def test_get_resource_history_24h(mock_store_cls, auth_client):
     mock_store = mock_store_cls.return_value
     mock_store.query_history.return_value = {
         "resource_id": "ec2:cn-north-1:i-123",
-        "metric": "cpu_utilization",
+        "metric": "CPUUtilization",
         "range": "24h",
         "granularity": "hourly",
         "data": [{"timestamp": 1714113600, "value": 12.5}],

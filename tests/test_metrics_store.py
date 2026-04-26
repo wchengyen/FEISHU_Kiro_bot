@@ -33,13 +33,13 @@ def store():
 
 def test_write_and_query_hourly(store):
     records = [
-        ("ec2:cn-north-1:i-123", "cpu_utilization", 1714113600, 12.5, "cn-north-1"),
-        ("ec2:cn-north-1:i-123", "cpu_utilization", 1714117200, 15.2, "cn-north-1"),
-        ("ec2:cn-north-1:i-456", "cpu_utilization", 1714113600, 8.0, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", 1714113600, 12.5, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", 1714117200, 15.2, "cn-north-1"),
+        ("ec2:cn-north-1:i-456", "CPUUtilization", 1714113600, 8.0, "cn-north-1"),
     ]
     store.write_hourly(records)
 
-    result = store.query_hourly("ec2:cn-north-1:i-123", "cpu_utilization", 1714113000, 1714118000)
+    result = store.query_hourly("ec2:cn-north-1:i-123", "CPUUtilization", 1714113000, 1714118000)
     assert len(result) == 2
     assert result[0]["timestamp"] == 1714113600
     assert result[0]["value"] == 12.5
@@ -51,7 +51,7 @@ def test_downsample_and_query_daily(store):
     # Insert hourly data for 2026-04-25
     base = int(datetime(2026, 4, 25, 0, 0, 0).timestamp())
     records = [
-        ("ec2:cn-north-1:i-123", "cpu_utilization", base + h * 3600, float(10 + h), "cn-north-1")
+        ("ec2:cn-north-1:i-123", "CPUUtilization", base + h * 3600, float(10 + h), "cn-north-1")
         for h in range(24)
     ]
     store.write_hourly(records)
@@ -61,7 +61,7 @@ def test_downsample_and_query_daily(store):
     assert count == 1
 
     # Query daily
-    result = store.query_daily("ec2:cn-north-1:i-123", "cpu_utilization", "2026-04-25", "2026-04-25")
+    result = store.query_daily("ec2:cn-north-1:i-123", "CPUUtilization", "2026-04-25", "2026-04-25")
     assert len(result) == 1
     row = result[0]
     assert row["date"] == "2026-04-25"
@@ -74,14 +74,14 @@ def test_downsample_and_query_daily(store):
 def test_query_history_routes_to_hourly(store):
     base = int(datetime(2026, 4, 25, 0, 0, 0).timestamp())
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", base, 10.0, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", base, 10.0, "cn-north-1"),
     ])
     with patch("dashboard.metrics_store.datetime") as mock_dt:
         mock_dt.utcnow.return_value = datetime(2026, 4, 25, 12, 0, 0)
         mock_dt.utcfromtimestamp = datetime.utcfromtimestamp
         mock_dt.strptime = datetime.strptime
         mock_dt.timedelta = __import__("datetime").timedelta
-        result = store.query_history("ec2:cn-north-1:i-123", "cpu_utilization", "24h")
+        result = store.query_history("ec2:cn-north-1:i-123", "CPUUtilization", "24h")
     assert result["granularity"] == "hourly"
     assert len(result["data"]) == 1
 
@@ -89,7 +89,7 @@ def test_query_history_routes_to_hourly(store):
 def test_query_history_routes_to_daily(store):
     base = int(datetime(2026, 4, 25, 0, 0, 0).timestamp())
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", base + h * 3600, float(10 + h), "cn-north-1")
+        ("ec2:cn-north-1:i-123", "CPUUtilization", base + h * 3600, float(10 + h), "cn-north-1")
         for h in range(24)
     ])
     store.downsample_month(2026, 4)
@@ -99,7 +99,7 @@ def test_query_history_routes_to_daily(store):
         mock_dt.utcfromtimestamp = datetime.utcfromtimestamp
         mock_dt.strptime = datetime.strptime
         mock_dt.timedelta = __import__("datetime").timedelta
-        result = store.query_history("ec2:cn-north-1:i-123", "cpu_utilization", "180d")
+        result = store.query_history("ec2:cn-north-1:i-123", "CPUUtilization", "180d")
     assert result["granularity"] == "daily"
     assert len(result["data"]) == 1
 
@@ -107,12 +107,12 @@ def test_query_history_routes_to_daily(store):
 def test_write_hourly_upsert_updates_value(store):
     ts = 1714113600
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", ts, 12.5, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", ts, 12.5, "cn-north-1"),
     ])
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", ts, 99.9, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", ts, 99.9, "cn-north-1"),
     ])
-    result = store.query_hourly("ec2:cn-north-1:i-123", "cpu_utilization", ts, ts)
+    result = store.query_hourly("ec2:cn-north-1:i-123", "CPUUtilization", ts, ts)
     assert len(result) == 1
     assert result[0]["value"] == 99.9
 
@@ -123,10 +123,10 @@ def test_query_hourly_cross_month(store):
     # April 1, 2026 01:00
     april_ts = int(datetime(2026, 4, 1, 1, 0, 0).timestamp())
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", march_ts, 10.0, "cn-north-1"),
-        ("ec2:cn-north-1:i-123", "cpu_utilization", april_ts, 20.0, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", march_ts, 10.0, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", april_ts, 20.0, "cn-north-1"),
     ])
-    result = store.query_hourly("ec2:cn-north-1:i-123", "cpu_utilization", march_ts, april_ts)
+    result = store.query_hourly("ec2:cn-north-1:i-123", "CPUUtilization", march_ts, april_ts)
     assert len(result) == 2
     assert result[0]["value"] == 10.0
     assert result[1]["value"] == 20.0
@@ -136,7 +136,7 @@ def test_cleanup_old_daily(store):
     # Insert some daily aggregated data
     base = int(datetime(2026, 4, 25, 0, 0, 0).timestamp())
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", base + h * 3600, float(10 + h), "cn-north-1")
+        ("ec2:cn-north-1:i-123", "CPUUtilization", base + h * 3600, float(10 + h), "cn-north-1")
         for h in range(24)
     ])
     store.downsample_month(2026, 4)
@@ -149,14 +149,14 @@ def test_cleanup_old_daily(store):
 
     assert deleted >= 1
     # Verify old data is gone
-    result = store.query_daily("ec2:cn-north-1:i-123", "cpu_utilization", "2026-04-25", "2026-04-25")
+    result = store.query_daily("ec2:cn-north-1:i-123", "CPUUtilization", "2026-04-25", "2026-04-25")
     assert len(result) == 0
 
 
 def test_downsample_returns_insert_count(store):
     base = int(datetime(2026, 4, 25, 0, 0, 0).timestamp())
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", base + h * 3600, float(10 + h), "cn-north-1")
+        ("ec2:cn-north-1:i-123", "CPUUtilization", base + h * 3600, float(10 + h), "cn-north-1")
         for h in range(24)
     ])
     count = store.downsample_month(2026, 4)
@@ -166,39 +166,39 @@ def test_downsample_returns_insert_count(store):
 def test_query_history_7d_routes_to_hourly(store):
     base = int(datetime(2026, 4, 25, 0, 0, 0).timestamp())
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", base, 10.0, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", base, 10.0, "cn-north-1"),
     ])
     with patch("dashboard.metrics_store.datetime") as mock_dt:
         mock_dt.utcnow.return_value = datetime(2026, 4, 25, 12, 0, 0)
         mock_dt.utcfromtimestamp = datetime.utcfromtimestamp
         mock_dt.strptime = datetime.strptime
         mock_dt.timedelta = __import__("datetime").timedelta
-        result = store.query_history("ec2:cn-north-1:i-123", "cpu_utilization", "7d")
+        result = store.query_history("ec2:cn-north-1:i-123", "CPUUtilization", "7d")
     assert result["granularity"] == "hourly"
 
 
 def test_query_history_30d_routes_to_hourly(store):
     base = int(datetime(2026, 4, 25, 0, 0, 0).timestamp())
     store.write_hourly([
-        ("ec2:cn-north-1:i-123", "cpu_utilization", base, 10.0, "cn-north-1"),
+        ("ec2:cn-north-1:i-123", "CPUUtilization", base, 10.0, "cn-north-1"),
     ])
     with patch("dashboard.metrics_store.datetime") as mock_dt:
         mock_dt.utcnow.return_value = datetime(2026, 4, 25, 12, 0, 0)
         mock_dt.utcfromtimestamp = datetime.utcfromtimestamp
         mock_dt.strptime = datetime.strptime
         mock_dt.timedelta = __import__("datetime").timedelta
-        result = store.query_history("ec2:cn-north-1:i-123", "cpu_utilization", "30d")
+        result = store.query_history("ec2:cn-north-1:i-123", "CPUUtilization", "30d")
     assert result["granularity"] == "hourly"
 
 
 def test_query_history_invalid_range_raises(store):
     with pytest.raises(ValueError, match="Unsupported range"):
-        store.query_history("ec2:cn-north-1:i-123", "cpu_utilization", "1y")
+        store.query_history("ec2:cn-north-1:i-123", "CPUUtilization", "1y")
 
 
 def test_write_hourly_empty_records_is_noop(store):
     store.write_hourly([])
-    result = store.query_hourly("ec2:cn-north-1:i-123", "cpu_utilization", 0, 3600)
+    result = store.query_hourly("ec2:cn-north-1:i-123", "CPUUtilization", 0, 3600)
     assert result == []
 
 
@@ -207,6 +207,6 @@ def test_query_history_stats_all_none_when_no_data(store):
         mock_dt.utcnow.return_value = datetime(2026, 4, 25, 12, 0, 0)
         mock_dt.utcfromtimestamp = datetime.utcfromtimestamp
         mock_dt.timedelta = __import__("datetime").timedelta
-        result = store.query_history("ec2:cn-north-1:i-123", "cpu_utilization", "24h")
+        result = store.query_history("ec2:cn-north-1:i-123", "CPUUtilization", "24h")
     assert result["stats"] == {"min": None, "avg": None, "p95": None, "max": None}
     assert result["data"] == []

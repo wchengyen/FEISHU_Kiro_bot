@@ -25,11 +25,11 @@ class TestMetricsStoreEndToEnd:
             store = MetricsStore(base_dir=tmpdir)
             base = int(datetime(2026, 4, 20, 0, 0, 0).timestamp())
             records = [
-                ("ec2:cn-north-1:i-test", "cpu_utilization", base + h * 3600, float(10 + h), "cn-north-1")
+                ("ec2:cn-north-1:i-test", "CPUUtilization", base + h * 3600, float(10 + h), "cn-north-1")
                 for h in range(24)
             ]
             store.write_hourly(records)
-            result = store.query_hourly("ec2:cn-north-1:i-test", "cpu_utilization", base, base + 23 * 3600)
+            result = store.query_hourly("ec2:cn-north-1:i-test", "CPUUtilization", base, base + 23 * 3600)
             assert len(result) == 24
             assert result[0]["value"] == 10.0
             assert result[-1]["value"] == 33.0
@@ -40,13 +40,13 @@ class TestMetricsStoreEndToEnd:
             store = MetricsStore(base_dir=tmpdir)
             base = int(datetime(2026, 4, 20, 0, 0, 0).timestamp())
             store.write_hourly([
-                ("ec2:cn-north-1:i-test", "cpu_utilization", base + h * 3600, float(10 + h), "cn-north-1")
+                ("ec2:cn-north-1:i-test", "CPUUtilization", base + h * 3600, float(10 + h), "cn-north-1")
                 for h in range(24)
             ])
             count = store.downsample_month(2026, 4)
             assert count == 1
 
-            daily = store.query_daily("ec2:cn-north-1:i-test", "cpu_utilization", "2026-04-20", "2026-04-20")
+            daily = store.query_daily("ec2:cn-north-1:i-test", "CPUUtilization", "2026-04-20", "2026-04-20")
             assert len(daily) == 1
             row = daily[0]
             assert row["min_value"] == 10.0
@@ -62,7 +62,7 @@ class TestMetricsStoreEndToEnd:
             for day in range(3):
                 base = int(datetime(2026, 4, 20 + day, 0, 0, 0).timestamp())
                 store.write_hourly([
-                    ("ec2:cn-north-1:i-test", "cpu_utilization", base + h * 3600, float(10 + h), "cn-north-1")
+                    ("ec2:cn-north-1:i-test", "CPUUtilization", base + h * 3600, float(10 + h), "cn-north-1")
                     for h in range(24)
                 ])
             store.downsample_month(2026, 4)
@@ -73,7 +73,7 @@ class TestMetricsStoreEndToEnd:
                 mock_dt.utcfromtimestamp = datetime.utcfromtimestamp
                 mock_dt.strptime = datetime.strptime
                 mock_dt.timedelta = __import__("datetime").timedelta
-                result = store.query_history("ec2:cn-north-1:i-test", "cpu_utilization", "24h")
+                result = store.query_history("ec2:cn-north-1:i-test", "CPUUtilization", "24h")
             assert result["granularity"] == "hourly"
             assert len(result["data"]) > 0
             assert all("timestamp" in d and "value" in d for d in result["data"])
@@ -85,7 +85,7 @@ class TestMetricsStoreEndToEnd:
                 mock_dt.utcfromtimestamp = datetime.utcfromtimestamp
                 mock_dt.strptime = datetime.strptime
                 mock_dt.timedelta = __import__("datetime").timedelta
-                result = store.query_history("ec2:cn-north-1:i-test", "cpu_utilization", "180d")
+                result = store.query_history("ec2:cn-north-1:i-test", "CPUUtilization", "180d")
             assert result["granularity"] == "daily"
             assert len(result["data"]) == 3
 
@@ -98,7 +98,7 @@ class TestMetricsStoreEndToEnd:
             for month, day in [(3, 15), (4, 10)]:
                 base = int(datetime(2026, month, day, 0, 0, 0).timestamp())
                 store.write_hourly([
-                    ("ec2:cn-north-1:i-test", "cpu_utilization", base + h * 3600, float(10 + h), "cn-north-1")
+                    ("ec2:cn-north-1:i-test", "CPUUtilization", base + h * 3600, float(10 + h), "cn-north-1")
                     for h in range(24)
                 ])
             store.downsample_month(2026, 3)
@@ -145,7 +145,7 @@ class TestApiRouteEndToEnd:
                 mock_store = MockStore.return_value
                 mock_store.query_history.return_value = {
                     "resource_id": "ec2:cn-north-1:i-test",
-                    "metric": "cpu_utilization",
+                    "metric": "CPUUtilization",
                     "range": "24h",
                     "granularity": "hourly",
                     "data": [{"timestamp": 1714113600, "value": 15.5}],

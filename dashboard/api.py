@@ -269,7 +269,7 @@ def set_resource_pins():
 @dashboard_bp.route("/api/dashboard/resources/<path:resource_id>/history", methods=["GET"])
 @require_auth
 def get_resource_history(resource_id):
-    metric = request.args.get("metric", "cpu_utilization")
+    metric = request.args.get("metric", "CPUUtilization")
     range_label = request.args.get("range", "24h")
     valid_ranges = {"24h", "7d", "30d", "180d"}
     if range_label not in valid_ranges:
