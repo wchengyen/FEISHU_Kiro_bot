@@ -42,6 +42,73 @@ def test_get_skills(auth_client):
     assert "skills" in resp.json
 
 
+def test_post_skill_creates_skill(auth_client, monkeypatch, tmp_path):
+    skills_dir = tmp_path / ".kiro" / "skills"
+    monkeypatch.setattr("dashboard.api.create_skill", lambda name, desc: True)
+
+    resp = auth_client.post("/api/dashboard/skills", json={"name": "my-skill", "description": "A skill"})
+    assert resp.status_code == 200
+    assert resp.json == {"ok": True}
+
+
+def test_post_skill_rejects_invalid_name(auth_client):
+    resp = auth_client.post("/api/dashboard/skills", json={"name": "", "description": ""})
+    assert resp.status_code == 400
+    assert resp.json["ok"] is False
+
+
+def test_delete_skill_removes_skill(auth_client, monkeypatch):
+    monkeypatch.setattr("dashboard.api.delete_skill", lambda name: True)
+
+    resp = auth_client.delete("/api/dashboard/skills/my-skill")
+    assert resp.status_code == 200
+    assert resp.json == {"ok": True}
+
+
+def test_delete_skill_not_found(auth_client, monkeypatch):
+    monkeypatch.setattr("dashboard.api.delete_skill", lambda name: False)
+
+    resp = auth_client.delete("/api/dashboard/skills/missing")
+    assert resp.status_code == 404
+    assert resp.json["ok"] is False
+
+
+def test_get_agent_skills(auth_client, monkeypatch):
+    monkeypatch.setattr(
+        "dashboard.api.get_agent_skills",
+        lambda name: [{"name": "skill-a", "resource": "skill://.kiro/skills/skill-a/SKILL.md"}],
+    )
+
+    resp = auth_client.get("/api/dashboard/agents/my-agent/skills")
+    assert resp.status_code == 200
+    assert resp.json["ok"] is True
+    assert resp.json["skills"][0]["name"] == "skill-a"
+
+
+def test_post_agent_skill(auth_client, monkeypatch):
+    monkeypatch.setattr("dashboard.api.add_skill_to_agent", lambda agent, skill: True)
+
+    resp = auth_client.post("/api/dashboard/agents/my-agent/skills", json={"skill_name": "new-skill"})
+    assert resp.status_code == 200
+    assert resp.json == {"ok": True}
+
+
+def test_post_agent_skill_missing_agent(auth_client, monkeypatch):
+    monkeypatch.setattr("dashboard.api.add_skill_to_agent", lambda agent, skill: False)
+
+    resp = auth_client.post("/api/dashboard/agents/missing/skills", json={"skill_name": "new-skill"})
+    assert resp.status_code == 404
+    assert resp.json["ok"] is False
+
+
+def test_delete_agent_skill(auth_client, monkeypatch):
+    monkeypatch.setattr("dashboard.api.remove_skill_from_agent", lambda agent, skill: True)
+
+    resp = auth_client.delete("/api/dashboard/agents/my-agent/skills/old-skill")
+    assert resp.status_code == 200
+    assert resp.json == {"ok": True}
+
+
 def test_get_config(auth_client, monkeypatch, tmp_path):
     env_file = tmp_path / "test.env"
     env_file.write_text("KIRO_AGENT=my-agent\nWEBHOOK_TOKEN=secret123\n")

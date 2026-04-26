@@ -6,7 +6,16 @@ import os
 from flask import jsonify, request
 
 from dashboard import dashboard_bp, require_auth
-from dashboard.kiro_scanner import list_agents, list_skills
+from dashboard.kiro_scanner import (
+    list_agents,
+    list_skills,
+    get_skill_content,
+    create_skill,
+    delete_skill,
+    get_agent_skills,
+    add_skill_to_agent,
+    remove_skill_from_agent,
+)
 from dashboard.config_store import ConfigStore, CORE_KEYS
 from event_ingest import webhook_handler, ingest_to_store
 from event_store import EventStore
@@ -27,6 +36,71 @@ def get_agents():
 @require_auth
 def get_skills():
     return jsonify({"ok": True, "skills": list_skills()})
+
+
+@dashboard_bp.route("/api/dashboard/skills", methods=["POST"])
+@require_auth
+def post_skill():
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    description = (payload.get("description") or "").strip()
+
+    if not name:
+        return jsonify({"ok": False, "error": "name is required"}), 400
+
+    ok = create_skill(name, description)
+    if not ok:
+        return jsonify({"ok": False, "error": f"Skill '{name}' already exists or name is invalid"}), 409
+    return jsonify({"ok": True})
+
+
+@dashboard_bp.route("/api/dashboard/skills/<name>/content", methods=["GET"])
+@require_auth
+def get_skill_content_route(name):
+    content = get_skill_content(name)
+    if content is None:
+        return jsonify({"ok": False, "error": f"Skill '{name}' not found"}), 404
+    return jsonify({"ok": True, "content": content})
+
+
+@dashboard_bp.route("/api/dashboard/skills/<name>", methods=["DELETE"])
+@require_auth
+def delete_skill_route(name):
+    ok = delete_skill(name)
+    if not ok:
+        return jsonify({"ok": False, "error": f"Skill '{name}' not found"}), 404
+    return jsonify({"ok": True})
+
+
+@dashboard_bp.route("/api/dashboard/agents/<name>/skills", methods=["GET"])
+@require_auth
+def get_agent_skills_route(name):
+    skills = get_agent_skills(name)
+    return jsonify({"ok": True, "skills": skills})
+
+
+@dashboard_bp.route("/api/dashboard/agents/<name>/skills", methods=["POST"])
+@require_auth
+def add_agent_skill_route(name):
+    payload = request.get_json(silent=True) or {}
+    skill_name = (payload.get("skill_name") or "").strip()
+
+    if not skill_name:
+        return jsonify({"ok": False, "error": "skill_name is required"}), 400
+
+    ok = add_skill_to_agent(name, skill_name)
+    if not ok:
+        return jsonify({"ok": False, "error": f"Agent '{name}' not found"}), 404
+    return jsonify({"ok": True})
+
+
+@dashboard_bp.route("/api/dashboard/agents/<name>/skills/<skill_name>", methods=["DELETE"])
+@require_auth
+def remove_agent_skill_route(name, skill_name):
+    ok = remove_skill_from_agent(name, skill_name)
+    if not ok:
+        return jsonify({"ok": False, "error": f"Agent '{name}' not found"}), 404
+    return jsonify({"ok": True})
 
 
 @dashboard_bp.route("/api/dashboard/config", methods=["GET"])

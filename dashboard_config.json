@@ -1,17 +1,22 @@
 {
-  "regions": ["cn-north-1", "cn-northwest-1"],
+  "regions": [
+    "cn-north-1",
+    "cn-northwest-1"
+  ],
   "mappings": [
     {
       "agent": "ec2-alert-analyzer",
+      "service": "EC2",
       "severity": "high",
       "source": "prometheus",
-      "service": "EC2"
+      "skill": "ec2-alert-analyzer"
     },
     {
       "agent": "ec2-alert-analyzer",
+      "service": "EC2",
       "severity": "critical",
       "source": "prometheus",
-      "service": "EC2"
+      "skill": "ec2-alert-analyzer"
     }
   ],
   "service_rules": [
@@ -60,5 +65,6 @@
       "keyword": "cloudwatch",
       "service": "CloudWatch"
     }
-  ]
+  ],
+  "pinned_resources": []
 }

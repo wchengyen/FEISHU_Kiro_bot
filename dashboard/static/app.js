@@ -156,18 +156,117 @@ const AgentsPage = {
           <h4>{{ a.name }}</h4>
           <p>{{ a.description || "无描述" }}</p>
           <div class="meta">Tools: {{ (a.tools || []).join(", ") || "-" }}</div>
+          <div class="meta" style="margin-top:6px">
+            Skills:
+            <span v-for="s in a.linkedSkills" :key="s.name" class="badge badge-tag" style="margin-right:4px">{{ s.name }}</span>
+            <span v-if="!a.linkedSkills || a.linkedSkills.length === 0" style="color:#cbd5e1">-</span>
+          </div>
+          <div class="card-actions">
+            <button class="btn-outline" @click="openManageModal(a.name)">管理 Skills</button>
+          </div>
         </div>
       </div>
       <div class="empty" v-if="agents.length === 0">暂无数据</div>
+      <!-- Manage Skills Modal -->
+      <div class="modal-overlay" v-if="manageModal.show" @click.self="closeManageModal">
+        <div class="modal">
+          <div class="modal-header"><h3>管理 Skills — {{ manageModal.agentName }}</h3><button class="close" @click="closeManageModal">&times;</button></div>
+          <div class="modal-body">
+            <div class="field">
+              <label>已关联 Skills</label>
+              <div v-if="manageModal.linked.length === 0" style="color:#94a3b8">暂无关联 Skills</div>
+              <div v-else style="display:flex;flex-wrap:wrap;gap:6px">
+                <span v-for="s in manageModal.linked" :key="s.name" class="badge badge-tag" style="display:flex;align-items:center;gap:4px">
+                  {{ s.name }}
+                  <button style="background:none;border:none;color:#ef4444;cursor:pointer;padding:0;font-size:14px;line-height:1" @click="unlinkSkill(s.name)">&times;</button>
+                </span>
+              </div>
+            </div>
+            <div class="field">
+              <label>添加 Skill</label>
+              <div style="display:flex;gap:8px">
+                <select v-model="manageModal.selectedSkill" style="flex:1">
+                  <option value="">选择 Skill...</option>
+                  <option v-for="s in availableSkills" :key="s.name" :value="s.name">{{ s.name }}</option>
+                </select>
+                <button class="btn-outline" @click="linkSkill">添加</button>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary" @click="closeManageModal">关闭</button>
+          </div>
+        </div>
+      </div>
     </div>
   `,
   setup() {
     const agents = ref([]);
-    onMounted(async () => {
-      const data = await api("/agents");
-      agents.value = data.agents || [];
+    const allSkills = ref([]);
+    const manageModal = reactive({
+      show: false,
+      agentName: "",
+      linked: [],
+      selectedSkill: "",
     });
-    return { agents };
+
+    async function loadAgents() {
+      const data = await api("/agents");
+      const agentList = data.agents || [];
+      for (const a of agentList) {
+        try {
+          const sk = await api("/agents/" + encodeURIComponent(a.name) + "/skills");
+          a.linkedSkills = sk.skills || [];
+        } catch {
+          a.linkedSkills = [];
+        }
+      }
+      agents.value = agentList;
+    }
+
+    async function loadSkills() {
+      const data = await api("/skills");
+      allSkills.value = data.skills || [];
+    }
+
+    function openManageModal(agentName) {
+      manageModal.agentName = agentName;
+      manageModal.selectedSkill = "";
+      const agent = agents.value.find(a => a.name === agentName);
+      manageModal.linked = agent ? [...(agent.linkedSkills || [])] : [];
+      manageModal.show = true;
+    }
+
+    function closeManageModal() {
+      manageModal.show = false;
+    }
+
+    async function unlinkSkill(skillName) {
+      await api("/agents/" + encodeURIComponent(manageModal.agentName) + "/skills/" + encodeURIComponent(skillName), { method: "DELETE" });
+      manageModal.linked = manageModal.linked.filter(s => s.name !== skillName);
+      loadAgents();
+    }
+
+    async function linkSkill() {
+      if (!manageModal.selectedSkill) return;
+      await api("/agents/" + encodeURIComponent(manageModal.agentName) + "/skills", { method: "POST", body: { skill_name: manageModal.selectedSkill } });
+      manageModal.selectedSkill = "";
+      const sk = await api("/agents/" + encodeURIComponent(manageModal.agentName) + "/skills");
+      manageModal.linked = sk.skills || [];
+      loadAgents();
+    }
+
+    const availableSkills = computed(() => {
+      const linkedNames = new Set((manageModal.linked || []).map(s => s.name));
+      return allSkills.value.filter(s => !linkedNames.has(s.name));
+    });
+
+    onMounted(async () => {
+      await loadSkills();
+      await loadAgents();
+    });
+
+    return { agents, allSkills, manageModal, openManageModal, closeManageModal, unlinkSkill, linkSkill, availableSkills };
   }
 };
 
@@ -176,23 +275,105 @@ const SkillsPage = {
   template: `
     <div>
       <h2 class="page-title">Skills</h2>
+      <div class="toolbar">
+        <button @click="openModal()">新建 Skill</button>
+      </div>
       <div class="card-grid">
         <div class="card-item" v-for="s in skills" :key="s.name">
           <h4>{{ s.name }}</h4>
           <p>{{ s.description || "无描述" }}</p>
           <div class="meta">Triggers: {{ (s.triggers || []).join(", ") || "-" }}</div>
+          <div class="card-actions">
+            <button class="btn-outline" @click="browse(s.name)">浏览</button>
+            <button class="btn-danger-sm" @click="remove(s.name)">删除</button>
+          </div>
         </div>
       </div>
       <div class="empty" v-if="skills.length === 0">暂无数据</div>
+      <!-- Create Modal -->
+      <div class="modal-overlay" v-if="showModal" @click.self="closeModal">
+        <div class="modal">
+          <div class="modal-header"><h3>新建 Skill</h3><button class="close" @click="closeModal">&times;</button></div>
+          <div class="modal-body">
+            <div class="field"><label>Name *</label><input v-model="form.name" placeholder="仅允许字母、数字、-、_" /></div>
+            <div class="field"><label>Description</label><input v-model="form.description" placeholder="Skill 描述" /></div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary" @click="closeModal">取消</button>
+            <button class="primary" @click="save">保存</button>
+          </div>
+        </div>
+      </div>
+      <!-- Browse Modal -->
+      <div class="modal-overlay" v-if="browseModal.show" @click.self="closeBrowse">
+        <div class="modal" style="width:720px">
+          <div class="modal-header"><h3>{{ browseModal.name }}</h3><button class="close" @click="closeBrowse">&times;</button></div>
+          <div class="modal-body">
+            <div v-if="browseModal.loading" style="color:#64748b">加载中...</div>
+            <div v-else-if="browseModal.error" style="color:#ef4444">{{ browseModal.error }}</div>
+            <pre v-else class="skill-content">{{ browseModal.content }}</pre>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary" @click="closeBrowse">关闭</button>
+          </div>
+        </div>
+      </div>
     </div>
   `,
   setup() {
     const skills = ref([]);
-    onMounted(async () => {
+    const showModal = ref(false);
+    const form = reactive({ name: "", description: "" });
+    const browseModal = reactive({ show: false, name: "", content: "", loading: false, error: "" });
+
+    async function load() {
       const data = await api("/skills");
       skills.value = data.skills || [];
-    });
-    return { skills };
+    }
+
+    function openModal() {
+      form.name = "";
+      form.description = "";
+      showModal.value = true;
+    }
+
+    function closeModal() { showModal.value = false; }
+
+    async function save() {
+      const name = form.name.trim();
+      if (!name) { alert("Name 必填"); return; }
+      await api("/skills", { method: "POST", body: { name, description: form.description.trim() } });
+      closeModal();
+      load();
+    }
+
+    async function remove(name) {
+      if (!confirm(`确定删除 skill "${name}"?`)) return;
+      await api("/skills/" + encodeURIComponent(name), { method: "DELETE" });
+      load();
+    }
+
+    async function browse(name) {
+      browseModal.name = name;
+      browseModal.content = "";
+      browseModal.error = "";
+      browseModal.loading = true;
+      browseModal.show = true;
+      try {
+        const data = await api("/skills/" + encodeURIComponent(name) + "/content");
+        if (data.ok) browseModal.content = data.content;
+        else browseModal.error = data.error || "加载失败";
+      } catch (e) {
+        browseModal.error = e.message || "加载失败";
+      } finally {
+        browseModal.loading = false;
+      }
+    }
+
+    function closeBrowse() { browseModal.show = false; }
+
+    onMounted(load);
+    return { skills, showModal, form, browseModal, openModal, closeModal, save, remove, browse, closeBrowse };
   }
 };
 
@@ -839,10 +1020,15 @@ const ConfigPage = {
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Source</th><th>Service</th><th>Severity</th><th>Agent</th><th>操作</th></tr></thead>
+            <thead><tr><th>Source</th><th>Service</th><th>Severity</th><th>Agent</th><th>Skill</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="(m, i) in mappings" :key="i">
-                <td><input v-model="m.source" /></td>
+                <td>
+                  <select v-model="m.source">
+                    <option value="">- 选择 Source -</option>
+                    <option v-for="s in sourceOptions" :key="s" :value="s">{{ s }}</option>
+                  </select>
+                </td>
                 <td>
                   <select v-model="m.service">
                     <option value="">- 全部服务 -</option>
@@ -851,13 +1037,25 @@ const ConfigPage = {
                 </td>
                 <td>
                   <select v-model="m.severity">
+                    <option value="">- 选择级别 -</option>
                     <option>critical</option><option>high</option><option>medium</option><option>low</option>
                   </select>
                 </td>
-                <td><input v-model="m.agent" /></td>
-                <td><button class="danger" @click="removeMapping(i)">删除</button></td>
+                <td>
+                  <select v-model="m.agent" @change="onAgentChange(m)">
+                    <option value="">- 选择 Agent -</option>
+                    <option v-for="a in agentOptions" :key="a" :value="a">{{ a }}</option>
+                  </select>
+                </td>
+                <td>
+                  <select v-model="m.skill" :disabled="!m.agent">
+                    <option value="">- 选择 Skill -</option>
+                    <option v-for="s in (agentSkillsMap[m.agent] || [])" :key="s" :value="s">{{ s }}</option>
+                  </select>
+                </td>
+                <td><button class="btn-danger-sm" @click="removeMapping(i)">删除</button></td>
               </tr>
-              <tr v-if="mappings.length === 0"><td colspan="5" class="empty">暂无映射</td></tr>
+              <tr v-if="mappings.length === 0"><td colspan="6" class="empty">暂无映射</td></tr>
             </tbody>
           </table>
         </div>
@@ -885,7 +1083,7 @@ const ConfigPage = {
                 </td>
                 <td><input v-model="r.keyword" /></td>
                 <td><input v-model="r.service" /></td>
-                <td><button class="danger" @click="removeServiceRule(i)">删除</button></td>
+                <td><button class="btn-danger-sm" @click="removeServiceRule(i)">删除</button></td>
               </tr>
               <tr v-if="serviceRules.length === 0"><td colspan="5" class="empty">暂无规则</td></tr>
             </tbody>
@@ -899,6 +1097,9 @@ const ConfigPage = {
     const core = reactive({});
     const mappings = ref([]);
     const serviceRules = ref([]);
+    const agents = ref([]);
+    const skills = ref([]);
+    const agentSkillsMap = reactive({});
 
     async function load() {
       try {
@@ -913,6 +1114,24 @@ const ConfigPage = {
         const sr = await api("/service-rules");
         serviceRules.value = sr.rules || [];
       } catch {}
+      try {
+        const a = await api("/agents");
+        agents.value = a.agents || [];
+        // Load each agent's skills in parallel
+        const skillPromises = agents.value.map(async agent => {
+          try {
+            const sk = await api("/agents/" + encodeURIComponent(agent.name) + "/skills");
+            agentSkillsMap[agent.name] = (sk.skills || []).map(s => s.name);
+          } catch {
+            agentSkillsMap[agent.name] = [];
+          }
+        });
+        await Promise.all(skillPromises);
+      } catch {}
+      try {
+        const s = await api("/skills");
+        skills.value = s.skills || [];
+      } catch {}
     }
     async function saveCore() {
       await api("/config", { method: "POST", body: core });
@@ -923,7 +1142,7 @@ const ConfigPage = {
       alert("已保存");
     }
     function addMapping() {
-      mappings.value.push({ source: "", service: "", severity: "medium", agent: "" });
+      mappings.value.push({ source: "", service: "", severity: "", agent: "", skill: "" });
     }
     function removeMapping(i) {
       mappings.value.splice(i, 1);
@@ -943,14 +1162,29 @@ const ConfigPage = {
       for (const r of serviceRules.value) {
         if (r.service) set.add(r.service);
       }
-      // Also include services already used in mappings
       for (const m of mappings.value) {
         if (m.service) set.add(m.service);
       }
       return Array.from(set).sort();
     });
+    const sourceOptions = computed(() => {
+      const set = new Set(["prometheus", "jenkins", "cloudwatch", "manual"]);
+      for (const m of mappings.value) {
+        if (m.source) set.add(m.source);
+      }
+      return Array.from(set).sort();
+    });
+    const agentOptions = computed(() => {
+      return agents.value.map(a => a.name).sort();
+    });
+    function onAgentChange(m) {
+      const allowed = agentSkillsMap[m.agent] || [];
+      if (m.skill && !allowed.includes(m.skill)) {
+        m.skill = "";
+      }
+    }
     onMounted(load);
-    return { tab, core, mappings, serviceRules, mappingServiceOptions, saveCore, saveMappings, addMapping, removeMapping, saveServiceRules, addServiceRule, removeServiceRule };
+    return { tab, core, mappings, serviceRules, agentSkillsMap, mappingServiceOptions, sourceOptions, agentOptions, saveCore, saveMappings, addMapping, removeMapping, onAgentChange, saveServiceRules, addServiceRule, removeServiceRule };
   }
 };
 

@@ -460,3 +460,54 @@ tr.pinned:hover td { background: #f1f5f9; }
 .badge-rds { background: #f5f3ff; color: #7c3aed; }
 .badge-eks { background: #fff7ed; color: #c2410c; }
 .badge-tag { background: #f0fdf4; color: #15803d; margin-right: 4px; font-size: 10px; }
+
+/* ===== Card Actions ===== */
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.card-actions button,
+.btn-sm,
+.btn-outline,
+.btn-danger-sm {
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: .15s ease;
+  border: 1px solid transparent;
+}
+.btn-outline {
+  background: #fff;
+  color: #2563eb;
+  border-color: #bfdbfe;
+}
+.btn-outline:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+.btn-danger-sm {
+  background: #fff;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+.btn-danger-sm:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+/* ===== Skill Content Preview ===== */
+.skill-content {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #334155;
+  overflow-x: auto;
+  max-height: 60vh;
+  overflow-y: auto;
+}
