@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-# scripts/sync_resource_metrics.py
+"""Sync resource metrics from CloudWatch to local SQLite.
+
+Cron setup example:
+    0 3 * * * cd /home/ubuntu/kiro-devops && PYTHONPATH=/home/ubuntu/kiro-devops /usr/bin/python3 scripts/sync_resource_metrics.py --incremental >> /var/log/kiro-metrics-sync.log 2>&1
+
+First run (backfill 30 days):
+    PYTHONPATH=/home/ubuntu/kiro-devops python3 scripts/sync_resource_metrics.py --backfill
+"""
 import argparse
 import datetime
 import logging
