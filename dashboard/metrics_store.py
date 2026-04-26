@@ -65,7 +65,7 @@ class MetricsStore:
         self.base_dir = base_dir or DEFAULT_BASE_DIR
         os.makedirs(self.base_dir, exist_ok=True)
         self._raw_conns: dict[str, sqlite3.Connection] = {}
-        self._agg_conn: sqlite3.Connection | None = None
+        self._agg_connection: sqlite3.Connection | None = None
 
     def _raw_conn(self, year: int, month: int) -> sqlite3.Connection:
         key = f"{year}_{month:02d}"
@@ -77,12 +77,12 @@ class MetricsStore:
         return self._raw_conns[key]
 
     def _agg_conn(self) -> sqlite3.Connection:
-        if self._agg_conn is None:
+        if self._agg_connection is None:
             path = _aggregated_db_path(self.base_dir)
             conn = sqlite3.connect(path)
             _ensure_daily_table(conn)
-            self._agg_conn = conn
-        return self._agg_conn
+            self._agg_connection = conn
+        return self._agg_connection
 
     def write_hourly(self, records: list[tuple]):
         """Bulk insert hourly records with UPSERT.
@@ -141,10 +141,93 @@ class MetricsStore:
                 results.append({"timestamp": row[0], "value": row[1]})
         return results
 
+    def downsample_month(self, year: int, month: int) -> int:
+        """Aggregate hourly data for a given month into daily_aggregated."""
+        conn = self._raw_conn(year, month)
+        cursor = conn.execute(
+            """
+            SELECT resource_id, metric_name, date(timestamp, 'unixepoch') as dt,
+                   MIN(value), AVG(value), MAX(value)
+            FROM hourly_metrics
+            WHERE strftime('%Y-%m', datetime(timestamp, 'unixepoch')) = ?
+            GROUP BY resource_id, metric_name, date(timestamp, 'unixepoch')
+            ORDER BY resource_id, metric_name, dt
+            """,
+            (f"{year}-{month:02d}",),
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return 0
+
+        agg_conn = self._agg_conn()
+        inserted = 0
+        for resource_id, metric_name, dt, min_val, avg_val, max_val in rows:
+            # Compute p95 from raw values
+            p95_cursor = conn.execute(
+                """
+                SELECT value FROM hourly_metrics
+                WHERE resource_id = ? AND metric_name = ?
+                  AND date(timestamp, 'unixepoch') = ?
+                ORDER BY value
+                """,
+                (resource_id, metric_name, dt),
+            )
+            values = [r[0] for r in p95_cursor.fetchall()]
+            p95_val = values[int(len(values) * 0.95)] if values else 0.0
+
+            agg_conn.execute(
+                """
+                INSERT INTO daily_aggregated (resource_id, metric_name, date, min_value, avg_value, p95_value, max_value, region)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(resource_id, metric_name, date) DO UPDATE SET
+                    min_value=excluded.min_value,
+                    avg_value=excluded.avg_value,
+                    p95_value=excluded.p95_value,
+                    max_value=excluded.max_value,
+                    region=excluded.region
+                """,
+                (resource_id, metric_name, dt, min_val, round(avg_val, 2), round(p95_val, 2), max_val, None),
+            )
+            inserted += 1
+        agg_conn.commit()
+        return inserted
+
+    def query_daily(self, resource_id: str, metric_name: str, start_date: str, end_date: str) -> list[dict]:
+        conn = self._agg_conn()
+        cursor = conn.execute(
+            """
+            SELECT date, min_value, avg_value, p95_value, max_value FROM daily_aggregated
+            WHERE resource_id = ? AND metric_name = ? AND date >= ? AND date <= ?
+            ORDER BY date
+            """,
+            (resource_id, metric_name, start_date, end_date),
+        )
+        return [
+            {
+                "date": row[0],
+                "min_value": row[1],
+                "avg_value": row[2],
+                "p95_value": row[3],
+                "max_value": row[4],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def cleanup_old_daily(self, keep_days: int = 180) -> int:
+        """Delete daily aggregated records older than keep_days."""
+        cutoff = (datetime.utcnow() - timedelta(days=keep_days)).strftime("%Y-%m-%d")
+        conn = self._agg_conn()
+        cursor = conn.execute(
+            "DELETE FROM daily_aggregated WHERE date < ?",
+            (cutoff,),
+        )
+        conn.commit()
+        return cursor.rowcount
+
     def close(self):
         for conn in self._raw_conns.values():
             conn.close()
         self._raw_conns.clear()
-        if self._agg_conn:
-            self._agg_conn.close()
-            self._agg_conn = None
+        if self._agg_connection:
+            self._agg_connection.close()
+            self._agg_connection = None
