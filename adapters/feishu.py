@@ -136,6 +136,44 @@ class FeishuAdapter(PlatformAdapter):
                 break
         log.info(f"已主动发送消息给 {raw_user_id}（{len(chunks)} 段）")
 
+    def send_image(self, raw_user_id: str, image_path: str, context_token: str | None = None) -> bool:
+        key = self.upload_image(image_path)
+        if not key:
+            return False
+        req = CreateMessageRequest.builder() \
+            .receive_id_type("open_id") \
+            .request_body(CreateMessageRequestBody.builder()
+                          .receive_id(raw_user_id)
+                          .msg_type("image")
+                          .content(json.dumps({"image_key": key}))
+                          .build()) \
+            .build()
+        resp = self.client.im.v1.message.create(req)
+        if not resp.success():
+            log.error(f"主动发送图片失败: {resp.code} {resp.msg}")
+            return False
+        log.info(f"已主动发送图片给 {raw_user_id}")
+        return True
+
+    def send_file(self, raw_user_id: str, file_path: str, context_token: str | None = None) -> bool:
+        key = self.upload_file(file_path)
+        if not key:
+            return False
+        req = CreateMessageRequest.builder() \
+            .receive_id_type("open_id") \
+            .request_body(CreateMessageRequestBody.builder()
+                          .receive_id(raw_user_id)
+                          .msg_type("file")
+                          .content(json.dumps({"file_key": key}))
+                          .build()) \
+            .build()
+        resp = self.client.im.v1.message.create(req)
+        if not resp.success():
+            log.error(f"主动发送文件失败: {resp.code} {resp.msg}")
+            return False
+        log.info(f"已主动发送文件给 {raw_user_id}")
+        return True
+
     def reply(self, incoming: IncomingMessage, payload: OutgoingPayload) -> None:
         message_id = incoming.message_id
         text = payload.text

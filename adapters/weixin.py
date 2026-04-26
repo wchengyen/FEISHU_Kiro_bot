@@ -14,6 +14,13 @@ from typing import Callable
 import qrcode
 
 from .base import PlatformAdapter, IncomingMessage, OutgoingPayload
+from .weixin_media import (
+    aes_encrypt,
+    download_media,
+    upload_media,
+    save_media_to_temp,
+    get_image_dimensions,
+)
 
 log = logging.getLogger("adapter-weixin")
 DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
@@ -41,9 +48,9 @@ def _get(url: str, headers: dict | None = None, timeout: int = 35) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _post(path: str, base_url: str, token: str, body: dict, timeout: int = 40) -> dict:
+def _post(path: str, base_url: str, token: str, body: dict, timeout: int = 40, channel_version: str = "2.0.0") -> dict:
     url = base_url.rstrip("/") + "/" + path.lstrip("/")
-    data = json.dumps({**body, "base_info": {"channel_version": "1.0.0"}}, ensure_ascii=False).encode()
+    data = json.dumps({**body, "base_info": {"channel_version": channel_version}}, ensure_ascii=False).encode()
     req = urllib.request.Request(url, data=data, headers=_headers(token), method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
@@ -191,13 +198,45 @@ class WeixinAdapter(PlatformAdapter):
             self._context_tokens[from_user] = context_token
 
         text = ""
+        images: list[str] = []
+        files: list[str] = []
+
         items = msg.get("item_list") or []
         for item in items:
-            if item.get("type") == 1:
+            item_type = item.get("type")
+            if item_type == 1:
                 text = item.get("text_item", {}).get("text", "")
-                break
+            elif item_type == 2:
+                # 图片
+                img = item.get("image_item", {})
+                url = img.get("url") or img.get("cdn_url")
+                aes_key = img.get("aes_key")
+                if url:
+                    try:
+                        data = download_media(url, aes_key)
+                        path = save_media_to_temp(data, suffix=".jpg")
+                        images.append(path)
+                        log.info(f"下载微信图片: {path} ({len(data)} bytes)")
+                    except Exception as e:
+                        log.error(f"下载微信图片失败: {e}")
+            elif item_type == 4:
+                # 文件
+                file_info = item.get("file_item", {})
+                url = file_info.get("url") or file_info.get("cdn_url")
+                aes_key = file_info.get("aes_key")
+                file_name = file_info.get("file_name", "download")
+                if url:
+                    try:
+                        data = download_media(url, aes_key)
+                        suffix = os.path.splitext(file_name)[1] or ".bin"
+                        path = save_media_to_temp(data, suffix=suffix)
+                        files.append(path)
+                        log.info(f"下载微信文件: {path} ({len(data)} bytes)")
+                    except Exception as e:
+                        log.error(f"下载微信文件失败: {e}")
 
-        if not text:
+        # 纯媒体消息（无文本）也允许通过
+        if not text and not images and not files:
             return
 
         incoming = IncomingMessage(
@@ -210,6 +249,8 @@ class WeixinAdapter(PlatformAdapter):
             is_at_me=False,
             context_token=context_token,
             raw=msg,
+            images=images,
+            files=files,
         )
         self.on_message(incoming)
 
@@ -240,11 +281,144 @@ class WeixinAdapter(PlatformAdapter):
 
     def reply(self, incoming: IncomingMessage, payload: OutgoingPayload) -> None:
         self.send_text(incoming.raw_user_id, payload.text, incoming.context_token)
+        for img_path in payload.images:
+            self.send_image(incoming.raw_user_id, img_path, incoming.context_token)
+        for file_path in payload.files:
+            self.send_file(incoming.raw_user_id, file_path, incoming.context_token)
+
+    def send_image(self, raw_user_id: str, image_path: str, context_token: str | None = None) -> bool:
+        ctx = context_token or self._context_tokens.get(raw_user_id)
+        if not ctx:
+            log.error(f"无法发送图片给 {raw_user_id}：缺少 context_token")
+            return False
+
+        try:
+            # 1. 读取并加密图片
+            with open(image_path, "rb") as f:
+                plain = f.read()
+            encrypted, aes_key = aes_encrypt(plain)
+
+            # 2. 获取上传 URL
+            upload_resp = _post(
+                "ilink/bot/getuploadurl",
+                self.base_url,
+                self.bot_token,
+                {"msg": {"item_list": [{"type": 2}]}},
+            )
+            if upload_resp.get("ret", 0) != 0:
+                log.error(f"getuploadurl 失败: {upload_resp}")
+                return False
+
+            upload_param = upload_resp.get("upload_param", {})
+            upload_url = upload_param.get("upload_url")
+            if not upload_url:
+                log.error("getuploadurl 未返回 upload_url")
+                return False
+
+            # 3. 上传加密文件到 CDN
+            x_encrypted = upload_media(upload_url, encrypted)
+
+            # 4. 获取图片尺寸
+            width, height = get_image_dimensions(image_path)
+
+            # 5. 发送消息
+            body = {
+                "msg": {
+                    "from_user_id": "",
+                    "to_user_id": raw_user_id,
+                    "client_id": f"kiro-{secrets.token_hex(8)}",
+                    "message_type": 2,
+                    "message_state": 2,
+                    "context_token": ctx,
+                    "item_list": [{
+                        "type": 2,
+                        "image_item": {
+                            "cdn_url": upload_url,
+                            "x_encrypted_param": x_encrypted,
+                            "aes_key": base64.b64encode(aes_key).decode(),
+                            "width": width,
+                            "height": height,
+                        }
+                    }],
+                }
+            }
+            resp = _post("ilink/bot/sendmessage", self.base_url, self.bot_token, body)
+            if resp.get("ret", 0) != 0:
+                log.error(f"微信发送图片失败: {resp}")
+                return False
+            log.info(f"微信图片发送成功: {image_path}")
+            return True
+
+        except Exception as e:
+            log.exception(f"微信发送图片异常: {e}")
+            return False
+
+    def send_file(self, raw_user_id: str, file_path: str, context_token: str | None = None) -> bool:
+        ctx = context_token or self._context_tokens.get(raw_user_id)
+        if not ctx:
+            log.error(f"无法发送文件给 {raw_user_id}：缺少 context_token")
+            return False
+
+        try:
+            with open(file_path, "rb") as f:
+                plain = f.read()
+            encrypted, aes_key = aes_encrypt(plain)
+
+            upload_resp = _post(
+                "ilink/bot/getuploadurl",
+                self.base_url,
+                self.bot_token,
+                {"msg": {"item_list": [{"type": 4}]}},
+            )
+            if upload_resp.get("ret", 0) != 0:
+                log.error(f"getuploadurl 失败: {upload_resp}")
+                return False
+
+            upload_param = upload_resp.get("upload_param", {})
+            upload_url = upload_param.get("upload_url")
+            if not upload_url:
+                log.error("getuploadurl 未返回 upload_url")
+                return False
+
+            x_encrypted = upload_media(upload_url, encrypted)
+            file_name = os.path.basename(file_path)
+
+            body = {
+                "msg": {
+                    "from_user_id": "",
+                    "to_user_id": raw_user_id,
+                    "client_id": f"kiro-{secrets.token_hex(8)}",
+                    "message_type": 2,
+                    "message_state": 2,
+                    "context_token": ctx,
+                    "item_list": [{
+                        "type": 4,
+                        "file_item": {
+                            "cdn_url": upload_url,
+                            "x_encrypted_param": x_encrypted,
+                            "aes_key": base64.b64encode(aes_key).decode(),
+                            "file_name": file_name,
+                            "file_size": len(plain),
+                        }
+                    }],
+                }
+            }
+            resp = _post("ilink/bot/sendmessage", self.base_url, self.bot_token, body)
+            if resp.get("ret", 0) != 0:
+                log.error(f"微信发送文件失败: {resp}")
+                return False
+            log.info(f"微信文件发送成功: {file_path}")
+            return True
+
+        except Exception as e:
+            log.exception(f"微信发送文件异常: {e}")
+            return False
 
     def upload_image(self, path: str) -> str | None:
-        log.warning("微信图片上传一期未实现")
-        return None
+        """微信没有独立的 upload_image 返回 media_key 的概念，
+        图片发送是 upload + sendmessage 原子操作。
+        此方法返回一个内部标识，供上层统一接口使用。"""
+        return path
 
     def upload_file(self, path: str) -> str | None:
-        log.warning("微信文件上传一期未实现")
-        return None
+        return path

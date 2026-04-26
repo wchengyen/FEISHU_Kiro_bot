@@ -8,6 +8,7 @@ import subprocess
 import threading
 
 from adapters.base import IncomingMessage, OutgoingPayload
+from adapters.feishu import extract_file_paths
 from kiro_executor import KiroExecutor, has_decision_signal
 from platform_dispatcher import PlatformDispatcher
 from scheduler import Scheduler
@@ -51,6 +52,12 @@ class MessageHandler:
     def _send_to_target(self, unified_user_id: str, text: str) -> None:
         """定时任务回调：根据 unified_id 路由到对应平台."""
         self.dispatcher.send(unified_user_id, text)
+        # 检测并发送文本中的图片/文件
+        images, files = extract_file_paths(text)
+        for img in images:
+            self.dispatcher.send_image(unified_user_id, img)
+        for f in files:
+            self.dispatcher.send_file(unified_user_id, f)
 
     def _call_kiro_simple(self, prompt: str) -> str:
         """简单调用（供定时任务使用）."""
@@ -75,6 +82,14 @@ class MessageHandler:
         """所有平台消息的统一入口."""
         user_id = incoming.unified_user_id
         text = incoming.text
+
+        # 处理用户发送的媒体消息
+        if incoming.images and not text:
+            self._reply(incoming, "📷 收到图片，暂不支持图片理解，请用文字描述你的需求。")
+            return
+        if incoming.files and not text:
+            self._reply(incoming, "📎 收到文件，暂不支持文件理解，请用文字描述你的需求。")
+            return
 
         if text.startswith("/schedule"):
             args = text[len("/schedule"):].strip()
@@ -204,7 +219,14 @@ class MessageHandler:
         if not adapter:
             log.error(f"找不到平台适配器: {incoming.platform}")
             return
-        adapter.reply(incoming, OutgoingPayload(text=text))
+        images, files = extract_file_paths(text)
+        # 从文本中移除文件路径，避免重复显示
+        clean_text = text
+        for path in images + files:
+            clean_text = clean_text.replace(path, "")
+        clean_text = clean_text.strip()
+        payload = OutgoingPayload(text=clean_text, images=images, files=files)
+        adapter.reply(incoming, payload)
 
     def _handle_memory_command(self, user_id: str, args: str) -> str:
         if args == "off":

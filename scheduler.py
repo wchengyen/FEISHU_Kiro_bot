@@ -10,6 +10,9 @@ from pathlib import Path
 
 import schedule
 
+# 默认时区：用户输入的时间按北京时间处理
+DEFAULT_TZ = "Asia/Shanghai"
+
 log = logging.getLogger("scheduler")
 
 JOBS_FILE = Path(__file__).parent / "scheduled_jobs.json"
@@ -85,12 +88,12 @@ class Scheduler:
         run.__name__ = f"job_{job.id}"  # schedule 需要唯一标识
 
         if freq == "every_day":
-            schedule.every().day.at(job.time_str).do(run).tag(f"job_{job.id}")
+            schedule.every().day.at(job.time_str, DEFAULT_TZ).do(run).tag(f"job_{job.id}")
         elif freq == "weekday":
             for day in ["monday", "tuesday", "wednesday", "thursday", "friday"]:
-                getattr(schedule.every(), day).at(job.time_str).do(run).tag(f"job_{job.id}")
+                getattr(schedule.every(), day).at(job.time_str, DEFAULT_TZ).do(run).tag(f"job_{job.id}")
         else:
-            getattr(schedule.every(), freq).at(job.time_str).do(run).tag(f"job_{job.id}")
+            getattr(schedule.every(), freq).at(job.time_str, DEFAULT_TZ).do(run).tag(f"job_{job.id}")
 
     def _register_all(self):
         schedule.clear()
