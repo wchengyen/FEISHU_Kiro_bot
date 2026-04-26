@@ -167,6 +167,7 @@ bash setup.sh
 - 告警推送目标选择（飞书/微信/双平台）
 - Dashboard 面板配置
 - systemd 服务安装（可选）
+- **AWS 凭证检查**（如已安装 boto3，会提示配置 AWS Profile）
 
 ### 方式二：手动配置
 
@@ -624,10 +625,18 @@ Dashboard 自动发现 AWS 资源并展示 CloudWatch 指标：
 
 **前置条件：**
 1. 安装 `boto3`：`pip3 install boto3`
-2. 配置 AWS 凭证（以下任一方式）：
-   - `.env` 中设置 `AWS_ACCESS_KEY_ID` 和 `AWS_SECRET_ACCESS_KEY`
-   - 实例挂载 IAM Role
-   - `~/.aws/credentials` 标准凭证文件
+2. **配置 AWS Profile 或凭证（必须先完成）**：
+   - 推荐：`aws configure` 配置标准凭证文件 `~/.aws/credentials`
+   - 或在 `.env` 中设置 `AWS_ACCESS_KEY_ID` 和 `AWS_SECRET_ACCESS_KEY`
+   - 或在 EC2 实例上挂载 IAM Role
+   - 若使用非 default 的 Profile，可在 `.env` 中设置 `AWS_PROFILE=your-profile-name`
+3. **IAM 权限范围（最小只读权限）**：
+   - `ec2:DescribeInstances`
+   - `rds:DescribeDBInstances`
+   - `cloudwatch:GetMetricStatistics`
+   - `cloudwatch:ListMetrics`
+
+> ⚠️ **安全提示**：请勿使用具有写权限（如 `*:*`）的 Admin 凭证。建议为 kiro-devops 单独创建只读 IAM User / Role，并限制最小权限。
 
 **缓存策略：** 5 分钟 TTL，支持手动刷新。
 
@@ -690,7 +699,24 @@ pip3 install -r requirements.txt
 | **boto3** | Dashboard Resources（AWS EC2/RDS 自动发现 + CloudWatch 指标） | `pip3 install boto3` |
 | **awscli** | Kiro Skill 中执行 AWS CLI 命令（如 CloudWatch 查询） | `pip3 install awscli` 或 `apt install awscli` |
 
+**AWS 凭证配置（使用 boto3 / awscli 前必须完成）：**
+
+```bash
+# 方式一：aws configure 配置标准凭证（推荐）
+aws configure
+# 按提示输入 Access Key / Secret Key / Region / Output format
+
+# 方式二：.env 中显式指定（适合容器或 CI）
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=xxx
+AWS_DEFAULT_REGION=ap-northeast-1
+
+# 方式三：使用非 default Profile
+AWS_PROFILE=production
+```
+
 > 💡 如果只需要飞书/微信聊天和定时任务功能，无需安装 `boto3` 和 `awscli`。
+> ⚠️ 使用 AWS 功能前，请务必确认当前 AWS Profile 的 IAM 权限范围，建议仅授予 ReadOnly 权限。
 
 ---
 

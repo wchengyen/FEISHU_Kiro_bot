@@ -118,6 +118,46 @@ check_deps() {
 }
 
 # -----------------------------------------------------------------------------
+# AWS 配置检查
+# -----------------------------------------------------------------------------
+check_aws() {
+    # 检查 boto3 是否安装（可选依赖）
+    if ! python3 -c "import boto3" 2>/dev/null; then
+        return 0
+    fi
+
+    # 检查是否已配置 AWS 凭证
+    local has_creds=false
+    if [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+        has_creds=true
+    elif [ -f "${HOME}/.aws/credentials" ] || [ -f "${HOME}/.aws/config" ]; then
+        has_creds=true
+    elif curl -s --connect-timeout 1 http://169.254.169.254/latest/meta-data/iam/security-credentials/ >/dev/null 2>&1; then
+        has_creds=true
+    fi
+
+    if [ "$has_creds" = false ]; then
+        warn "检测到已安装 boto3，但未找到 AWS 凭证配置"
+        echo ""
+        echo "如需使用 Dashboard Resources（AWS EC2/RDS 自动发现 + CloudWatch 指标），"
+        echo "请先配置 AWS Profile 或凭证，以下方式任选其一："
+        echo "  1. aws configure 命令配置 ~/.aws/credentials"
+        echo "  2. 在 .env 中设置 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY"
+        echo "  3. 为 EC2 实例挂载 IAM Role"
+        echo ""
+        echo "建议的 IAM 最小权限（ReadOnly）："
+        echo "  • ec2:DescribeInstances"
+        echo "  • rds:DescribeDBInstances"
+        echo "  • cloudwatch:GetMetricStatistics"
+        echo "  • cloudwatch:ListMetrics"
+        echo ""
+        read -p "按 Enter 继续..."
+    else
+        info "AWS 凭证已配置"
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # 飞书配置
 # -----------------------------------------------------------------------------
 setup_feishu() {
@@ -595,6 +635,9 @@ show_menu() {
 main() {
     # 检查依赖
     check_deps
+
+    # 检查 AWS 配置（可选依赖，仅提示）
+    check_aws
 
     # 显示菜单
     show_menu

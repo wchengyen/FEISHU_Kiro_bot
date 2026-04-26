@@ -1,4 +1,5 @@
 {
+  "regions": ["cn-north-1", "cn-northwest-1"],
   "mappings": [
     {
       "agent": "ec2-alert-analyzer",

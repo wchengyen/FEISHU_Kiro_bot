@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """微信 iLink Bot API 适配器."""
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -194,6 +195,8 @@ class WeixinAdapter(PlatformAdapter):
             return
         from_user = msg.get("from_user_id", "")
         context_token = msg.get("context_token", "")
+        item_types = [i.get("type") for i in msg.get("item_list", [])]
+        log.info(f"[DEBUG] 收到消息 from={from_user}, item_types={item_types}")
         if context_token:
             self._context_tokens[from_user] = context_token
 
@@ -207,36 +210,15 @@ class WeixinAdapter(PlatformAdapter):
             if item_type == 1:
                 text = item.get("text_item", {}).get("text", "")
             elif item_type == 2:
-                # 图片
-                img = item.get("image_item", {})
-                url = img.get("url") or img.get("cdn_url")
-                aes_key = img.get("aes_key")
-                if url:
-                    try:
-                        data = download_media(url, aes_key)
-                        path = save_media_to_temp(data, suffix=".jpg")
-                        images.append(path)
-                        log.info(f"下载微信图片: {path} ({len(data)} bytes)")
-                    except Exception as e:
-                        log.error(f"下载微信图片失败: {e}")
+                # 图片接收已禁用，保持文字沟通
+                log.info(f"[DEBUG] 收到图片消息 from={from_user}，已跳过（当前仅支持文字）")
             elif item_type == 4:
-                # 文件
-                file_info = item.get("file_item", {})
-                url = file_info.get("url") or file_info.get("cdn_url")
-                aes_key = file_info.get("aes_key")
-                file_name = file_info.get("file_name", "download")
-                if url:
-                    try:
-                        data = download_media(url, aes_key)
-                        suffix = os.path.splitext(file_name)[1] or ".bin"
-                        path = save_media_to_temp(data, suffix=suffix)
-                        files.append(path)
-                        log.info(f"下载微信文件: {path} ({len(data)} bytes)")
-                    except Exception as e:
-                        log.error(f"下载微信文件失败: {e}")
+                # 文件接收已禁用，保持文字沟通
+                log.info(f"[DEBUG] 收到文件消息 from={from_user}，已跳过（当前仅支持文字）")
 
-        # 纯媒体消息（无文本）也允许通过
-        if not text and not images and not files:
+        # 有图片/文件 item（即使被跳过）也要传递给 message_handler，让它回复提示语
+        has_skipped_media = any(i.get("type") in (2, 4) for i in items)
+        if not text and not images and not files and not has_skipped_media:
             return
 
         incoming = IncomingMessage(
@@ -298,30 +280,45 @@ class WeixinAdapter(PlatformAdapter):
                 plain = f.read()
             encrypted, aes_key = aes_encrypt(plain)
 
-            # 2. 获取上传 URL
+            # 2. 计算文件元数据
+            rawsize = len(plain)
+            rawfilemd5 = hashlib.md5(plain).hexdigest()
+            filesize = len(encrypted)
+            filekey = secrets.token_hex(16)
+            aeskey_hex = aes_key.hex()
+
+            # 3. 获取上传参数
             upload_resp = _post(
                 "ilink/bot/getuploadurl",
                 self.base_url,
                 self.bot_token,
-                {"msg": {"item_list": [{"type": 2}]}},
+                {
+                    "filekey": filekey,
+                    "media_type": 1,  # IMAGE
+                    "to_user_id": raw_user_id,
+                    "rawsize": rawsize,
+                    "rawfilemd5": rawfilemd5,
+                    "filesize": filesize,
+                    "no_need_thumb": True,
+                    "aeskey": aeskey_hex,
+                },
             )
             if upload_resp.get("ret", 0) != 0:
                 log.error(f"getuploadurl 失败: {upload_resp}")
                 return False
 
-            upload_param = upload_resp.get("upload_param", {})
-            upload_url = upload_param.get("upload_url")
-            if not upload_url:
-                log.error("getuploadurl 未返回 upload_url")
+            upload_param = upload_resp.get("upload_param", "")
+            if not upload_param:
+                log.error("getuploadurl 未返回 upload_param")
                 return False
 
-            # 3. 上传加密文件到 CDN
-            x_encrypted = upload_media(upload_url, encrypted)
+            # 4. 上传加密文件到 CDN
+            x_encrypted = upload_media(upload_param, filekey, encrypted)
 
-            # 4. 获取图片尺寸
+            # 5. 获取图片尺寸
             width, height = get_image_dimensions(image_path)
 
-            # 5. 发送消息
+            # 6. 发送消息
             body = {
                 "msg": {
                     "from_user_id": "",
@@ -333,11 +330,12 @@ class WeixinAdapter(PlatformAdapter):
                     "item_list": [{
                         "type": 2,
                         "image_item": {
-                            "cdn_url": upload_url,
-                            "x_encrypted_param": x_encrypted,
-                            "aes_key": base64.b64encode(aes_key).decode(),
-                            "width": width,
-                            "height": height,
+                            "media": {
+                                "encrypt_query_param": x_encrypted,
+                                "aes_key": base64.b64encode(aeskey_hex.encode()).decode(),
+                                "encrypt_type": 1,
+                            },
+                            "mid_size": filesize,
                         }
                     }],
                 }
@@ -364,23 +362,36 @@ class WeixinAdapter(PlatformAdapter):
                 plain = f.read()
             encrypted, aes_key = aes_encrypt(plain)
 
+            rawsize = len(plain)
+            rawfilemd5 = hashlib.md5(plain).hexdigest()
+            filesize = len(encrypted)
+            filekey = secrets.token_hex(16)
+            aeskey_hex = aes_key.hex()
+
             upload_resp = _post(
                 "ilink/bot/getuploadurl",
                 self.base_url,
                 self.bot_token,
-                {"msg": {"item_list": [{"type": 4}]}},
+                {
+                    "filekey": filekey,
+                    "media_type": 3,  # FILE
+                    "to_user_id": raw_user_id,
+                    "rawsize": rawsize,
+                    "rawfilemd5": rawfilemd5,
+                    "filesize": filesize,
+                    "aeskey": aeskey_hex,
+                },
             )
             if upload_resp.get("ret", 0) != 0:
                 log.error(f"getuploadurl 失败: {upload_resp}")
                 return False
 
-            upload_param = upload_resp.get("upload_param", {})
-            upload_url = upload_param.get("upload_url")
-            if not upload_url:
-                log.error("getuploadurl 未返回 upload_url")
+            upload_param = upload_resp.get("upload_param", "")
+            if not upload_param:
+                log.error("getuploadurl 未返回 upload_param")
                 return False
 
-            x_encrypted = upload_media(upload_url, encrypted)
+            x_encrypted = upload_media(upload_param, filekey, encrypted)
             file_name = os.path.basename(file_path)
 
             body = {
@@ -394,11 +405,13 @@ class WeixinAdapter(PlatformAdapter):
                     "item_list": [{
                         "type": 4,
                         "file_item": {
-                            "cdn_url": upload_url,
-                            "x_encrypted_param": x_encrypted,
-                            "aes_key": base64.b64encode(aes_key).decode(),
+                            "media": {
+                                "encrypt_query_param": x_encrypted,
+                                "aes_key": base64.b64encode(aeskey_hex.encode()).decode(),
+                                "encrypt_type": 1,
+                            },
                             "file_name": file_name,
-                            "file_size": len(plain),
+                            "file_size": rawsize,
                         }
                     }],
                 }

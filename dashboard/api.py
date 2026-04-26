@@ -224,11 +224,17 @@ def delete_scheduler(job_id):
 def get_resources():
     refresh = request.args.get("refresh") == "1"
     resource_type = request.args.get("type", "")
+    tag_key = request.args.get("tag_key", "")
+    tag_value = request.args.get("tag_value", "")
     try:
         data = get_all_resources_with_metrics(refresh=refresh)
         resources = data.get("resources", [])
         if resource_type:
             resources = [r for r in resources if r["type"] == resource_type]
+        if tag_key:
+            resources = [r for r in resources if tag_key in (r.get("tags") or {})]
+            if tag_value:
+                resources = [r for r in resources if (r.get("tags") or {}).get(tag_key) == tag_value]
         store = ConfigStore()
         pins = store.read_pinned_resources()
         return jsonify({

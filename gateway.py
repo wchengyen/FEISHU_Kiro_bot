@@ -5,6 +5,9 @@ import os
 import sys
 import threading
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from adapters import FeishuAdapter, WeixinAdapter
 from message_handler import MessageHandler
 from platform_dispatcher import PlatformDispatcher

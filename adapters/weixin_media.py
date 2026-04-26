@@ -56,15 +56,19 @@ def download_media(url: str, aes_key_b64: str | None, timeout: int = 60) -> byte
         log.warning("下载媒体缺少 aes_key，返回原始内容")
         return encrypted
 
-    key = base64.b64decode(aes_key_b64)
+    # media.aes_key 是 Base64 编码的十六进制字符串，需先 base64 解码再 hex 解码
+    hex_str = base64.b64decode(aes_key_b64).decode()
+    key = bytes.fromhex(hex_str)
     if len(key) not in (16, 24, 32):
         raise ValueError(f"AES key 长度异常: {len(key)} bytes")
 
     return aes_decrypt(encrypted, key)
 
 
-def upload_media(upload_url: str, encrypted_data: bytes, timeout: int = 60) -> str:
+def upload_media(upload_param: str, filekey: str, encrypted_data: bytes, timeout: int = 60) -> str:
     """上传加密后的媒体到 CDN，返回 x-encrypted-param."""
+    import urllib.parse
+    upload_url = f"{CDN_BASE_URL}/upload?encrypted_query_param={urllib.parse.quote(upload_param)}&filekey={filekey}"
     req = urllib.request.Request(
         upload_url,
         data=encrypted_data,

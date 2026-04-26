@@ -83,13 +83,21 @@ class MessageHandler:
         user_id = incoming.unified_user_id
         text = incoming.text
 
-        # 处理用户发送的媒体消息
-        if incoming.images and not text:
-            self._reply(incoming, "📷 收到图片，暂不支持图片理解，请用文字描述你的需求。")
+        # 检测原始消息中是否包含图片/文件（即使 adapter 未下载也给出提示）
+        raw_items = incoming.raw.get("item_list", []) if incoming.raw else []
+        has_raw_image = any(i.get("type") == 2 for i in raw_items)
+        has_raw_file = any(i.get("type") == 4 for i in raw_items)
+
+        # 媒体接收已禁用，保持文字沟通
+        if (incoming.images or has_raw_image) and not text:
+            self._reply(incoming, "📷 收到图片，当前仅支持文字沟通。请发送文字消息。")
             return
-        if incoming.files and not text:
-            self._reply(incoming, "📎 收到文件，暂不支持文件理解，请用文字描述你的需求。")
+        if (incoming.files or has_raw_file) and not text:
+            self._reply(incoming, "📎 收到文件，当前仅支持文字沟通。请发送文字消息。")
             return
+        if text and (incoming.images or incoming.files or has_raw_image or has_raw_file):
+            # 忽略媒体，仅处理文字
+            text = text.strip()
 
         if text.startswith("/schedule"):
             args = text[len("/schedule"):].strip()
@@ -219,13 +227,8 @@ class MessageHandler:
         if not adapter:
             log.error(f"找不到平台适配器: {incoming.platform}")
             return
-        images, files = extract_file_paths(text)
-        # 从文本中移除文件路径，避免重复显示
-        clean_text = text
-        for path in images + files:
-            clean_text = clean_text.replace(path, "")
-        clean_text = clean_text.strip()
-        payload = OutgoingPayload(text=clean_text, images=images, files=files)
+        # 媒体发送已禁用，保持文字沟通
+        payload = OutgoingPayload(text=text.strip())
         adapter.reply(incoming, payload)
 
     def _handle_memory_command(self, user_id: str, args: str) -> str:

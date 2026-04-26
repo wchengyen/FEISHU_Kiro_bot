@@ -14,73 +14,65 @@ from platform_dispatcher import PlatformDispatcher
 class TestWeixinAdapterMediaReceive:
     """测试微信适配器接收媒体消息."""
 
-    def test_handle_incoming_image(self):
+    def test_handle_incoming_image_skipped(self):
         adapter = WeixinAdapter(bot_token="test", on_message=MagicMock())
         adapter._context_tokens["user1@im.wechat"] = "ctx123"
 
-        mock_image_data = b"fake_image_bytes"
-        with patch("adapters.weixin.download_media", return_value=mock_image_data):
-            with patch("adapters.weixin.save_media_to_temp", return_value="/tmp/ilink_abc.jpg"):
-                msg = {
-                    "message_type": 1,
-                    "from_user_id": "user1@im.wechat",
-                    "context_token": "ctx123",
-                    "client_id": "msg-001",
-                    "item_list": [
-                        {"type": 2, "image_item": {"url": "https://cdn.test/img", "aes_key": "dGVzdA=="}}
-                    ],
-                }
-                adapter._handle_incoming(msg)
-
+        msg = {
+            "message_type": 1,
+            "from_user_id": "user1@im.wechat",
+            "context_token": "ctx123",
+            "client_id": "msg-001",
+            "item_list": [
+                {"type": 2, "image_item": {"media": {"full_url": "https://cdn.test/img", "aes_key": "dGVzdA=="}}}
+            ],
+        }
+        adapter._handle_incoming(msg)
+        # 图片被跳过下载，但消息仍传递给 message_handler 以便回复提示
+        adapter.on_message.assert_called_once()
         call_args = adapter.on_message.call_args[0][0]
-        assert isinstance(call_args, IncomingMessage)
-        assert call_args.images == ["/tmp/ilink_abc.jpg"]
+        assert call_args.images == []
         assert call_args.text == ""
-        assert call_args.platform == "weixin"
 
-    def test_handle_incoming_text_with_image(self):
+    def test_handle_incoming_text_with_image_ignores_media(self):
         adapter = WeixinAdapter(bot_token="test", on_message=MagicMock())
         adapter._context_tokens["user1@im.wechat"] = "ctx123"
 
-        mock_image_data = b"fake_image_bytes"
-        with patch("adapters.weixin.download_media", return_value=mock_image_data):
-            with patch("adapters.weixin.save_media_to_temp", return_value="/tmp/ilink_abc.jpg"):
-                msg = {
-                    "message_type": 1,
-                    "from_user_id": "user1@im.wechat",
-                    "context_token": "ctx123",
-                    "client_id": "msg-002",
-                    "item_list": [
-                        {"type": 1, "text_item": {"text": "看看这张图"}},
-                        {"type": 2, "image_item": {"url": "https://cdn.test/img", "aes_key": "dGVzdA=="}},
-                    ],
-                }
-                adapter._handle_incoming(msg)
+        msg = {
+            "message_type": 1,
+            "from_user_id": "user1@im.wechat",
+            "context_token": "ctx123",
+            "client_id": "msg-002",
+            "item_list": [
+                {"type": 1, "text_item": {"text": "看看这张图"}},
+                {"type": 2, "image_item": {"media": {"full_url": "https://cdn.test/img", "aes_key": "dGVzdA=="}}},
+            ],
+        }
+        adapter._handle_incoming(msg)
 
         call_args = adapter.on_message.call_args[0][0]
         assert call_args.text == "看看这张图"
-        assert call_args.images == ["/tmp/ilink_abc.jpg"]
+        assert call_args.images == []  # 图片已忽略
 
-    def test_handle_incoming_file(self):
+    def test_handle_incoming_file_skipped(self):
         adapter = WeixinAdapter(bot_token="test", on_message=MagicMock())
         adapter._context_tokens["user1@im.wechat"] = "ctx123"
 
-        mock_file_data = b"fake_pdf_bytes"
-        with patch("adapters.weixin.download_media", return_value=mock_file_data):
-            with patch("adapters.weixin.save_media_to_temp", return_value="/tmp/ilink_doc.pdf"):
-                msg = {
-                    "message_type": 1,
-                    "from_user_id": "user1@im.wechat",
-                    "context_token": "ctx123",
-                    "client_id": "msg-003",
-                    "item_list": [
-                        {"type": 4, "file_item": {"url": "https://cdn.test/file", "aes_key": "dGVzdA==", "file_name": "report.pdf"}}
-                    ],
-                }
-                adapter._handle_incoming(msg)
-
+        msg = {
+            "message_type": 1,
+            "from_user_id": "user1@im.wechat",
+            "context_token": "ctx123",
+            "client_id": "msg-003",
+            "item_list": [
+                {"type": 4, "file_item": {"media": {"full_url": "https://cdn.test/file", "aes_key": "dGVzdA=="}, "file_name": "report.pdf"}}
+            ],
+        }
+        adapter._handle_incoming(msg)
+        # 文件被跳过下载，但消息仍传递给 message_handler 以便回复提示
+        adapter.on_message.assert_called_once()
         call_args = adapter.on_message.call_args[0][0]
-        assert call_args.files == ["/tmp/ilink_doc.pdf"]
+        assert call_args.files == []
+        assert call_args.text == ""
 
     def test_handle_incoming_non_user_message_ignored(self):
         adapter = WeixinAdapter(bot_token="test", on_message=MagicMock())
@@ -111,7 +103,7 @@ class TestWeixinAdapterSendImage:
                 with patch("adapters.weixin.upload_media", return_value="enc_param_xyz"):
                     with patch("adapters.weixin.get_image_dimensions", return_value=(100, 200)):
                         mock_post.side_effect = [
-                            {"ret": 0, "upload_param": {"upload_url": "https://cdn.test/up"}},
+                            {"ret": 0, "upload_param": "AABtest"},
                             {"ret": 0},
                         ]
                         result = adapter.send_image("user1@im.wechat", tmp_path)
@@ -125,8 +117,11 @@ class TestWeixinAdapterSendImage:
         assert msg["context_token"] == "ctx123"
         assert len(msg["item_list"]) == 1
         assert msg["item_list"][0]["type"] == 2
-        assert msg["item_list"][0]["image_item"]["width"] == 100
-        assert msg["item_list"][0]["image_item"]["height"] == 200
+        image_item = msg["item_list"][0]["image_item"]
+        assert "media" in image_item
+        assert image_item["media"]["encrypt_query_param"] == "enc_param_xyz"
+        assert image_item["media"]["encrypt_type"] == 1
+        assert image_item["mid_size"] == len(b"encrypted")
         os.unlink(tmp_path)
 
     def test_send_file_success(self):
@@ -142,7 +137,7 @@ class TestWeixinAdapterSendImage:
             with patch("adapters.weixin._post") as mock_post:
                 with patch("adapters.weixin.upload_media", return_value="enc_param_xyz"):
                     mock_post.side_effect = [
-                        {"ret": 0, "upload_param": {"upload_url": "https://cdn.test/up"}},
+                        {"ret": 0, "upload_param": "AABtest"},
                         {"ret": 0},
                     ]
                     result = adapter.send_file("user1@im.wechat", tmp_path)

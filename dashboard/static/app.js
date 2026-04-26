@@ -444,13 +444,13 @@ const EventsPage = {
 const SchedulerPage = {
   template: `
     <div>
-      <h2 class="page-title">Scheduler</h2>
+      <h2 class="page-title">Scheduler <span style="font-size:13px;font-weight:400;color:#64748b;margin-left:8px">时区：UTC+8 北京时间</span></h2>
       <div class="toolbar">
         <button @click="openModal()">新建</button>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>User</th><th>频率</th><th>时间</th><th>指令</th><th>启用</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>User</th><th>频率</th><th>时间 (UTC+8)</th><th>指令</th><th>启用</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="j in jobs" :key="j.id">
               <td>{{ j.id }}</td>
@@ -558,6 +558,8 @@ const ResourcesPage = {
         <input v-model="filterStatus" placeholder="Status" />
         <input v-model="filterClass" placeholder="机型" />
         <input v-model="filterOs" placeholder="OS" />
+        <input v-model="filterTagKey" placeholder="Tag Key" />
+        <input v-model="filterTagValue" placeholder="Tag Value" />
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b;cursor:pointer">
           <input type="checkbox" v-model="onlyPinned" /> 仅看 Pinned
         </label>
@@ -575,6 +577,7 @@ const ResourcesPage = {
               <th>OS</th>
               <th>ID</th>
               <th>Status</th>
+              <th>Tags</th>
               <th style="width:120px">7d Trend</th>
               <th style="width:120px">7d Avg/P95/Max</th>
               <th style="width:120px">30d Avg/P95/Max</th>
@@ -592,13 +595,19 @@ const ResourcesPage = {
                 <td>{{ r.type === 'ec2' ? (r.meta.os || '-') : (r.meta.engine || '-') }}</td>
                 <td><code class="tag">{{ r.raw_id }}</code></td>
                 <td>{{ r.status }}</td>
+                <td>
+                  <span v-for="(v, k) in r.tags" :key="k" class="badge badge-tag" :title="k + ': ' + v">
+                    {{ k }}:{{ v }}
+                  </span>
+                  <span v-if="!r.tags || Object.keys(r.tags).length === 0" style="color:#cbd5e1">-</span>
+                </td>
                 <td v-html="sparklineSvg(r.sparkline, sparklineColor(r.type))"></td>
                 <td>{{ formatStats(r.stats_7d) }}</td>
                 <td>{{ formatStats(r.stats_30d) }}</td>
                 <td><button class="pin-btn" @click="toggleExpand(r.id)">{{ expandedId === r.id ? '▼' : '▶' }}</button></td>
               </tr>
               <tr v-if="expandedId === r.id">
-                <td colspan="12" style="background:#f8fafc;padding:16px">
+                <td colspan="13" style="background:#f8fafc;padding:16px">
                 <div style="max-width:800px">
                   <div style="display:flex;gap:8px;margin-bottom:12px">
                     <button
@@ -643,6 +652,8 @@ const ResourcesPage = {
     const filterStatus = ref("");
     const filterClass = ref("");
     const filterOs = ref("");
+    const filterTagKey = ref("");
+    const filterTagValue = ref("");
     const onlyPinned = ref(false);
     const expandedId = ref(null);
     const historyData = ref(null);
@@ -731,6 +742,8 @@ const ResourcesPage = {
       filterStatus.value = "";
       filterClass.value = "";
       filterOs.value = "";
+      filterTagKey.value = "";
+      filterTagValue.value = "";
       onlyPinned.value = false;
     }
     async function load(refresh = false) {
@@ -771,11 +784,22 @@ const ResourcesPage = {
         });
       }
 
+      const tagKey = filterTagKey.value.trim();
+      const tagValue = filterTagValue.value.trim();
+      if (tagKey) {
+        list = list.filter(r => {
+          const tags = r.tags || {};
+          if (!(tagKey in tags)) return false;
+          if (tagValue) return tags[tagKey] === tagValue;
+          return true;
+        });
+      }
+
       return list;
     });
 
     onMounted(() => load());
-    return { resources, pins, filterType, searchQ, filterRegion, filterStatus, filterClass, filterOs, onlyPinned, isPinned, togglePin, sparklineSvg, sparklineColor, formatStats, resetFilters, filteredResources, load, expandedId, historyData, historyLoading, historyRange, historyRanges, toggleExpand, loadHistory, historyChartSvg };
+    return { resources, pins, filterType, searchQ, filterRegion, filterStatus, filterClass, filterOs, filterTagKey, filterTagValue, onlyPinned, isPinned, togglePin, sparklineSvg, sparklineColor, formatStats, resetFilters, filteredResources, load, expandedId, historyData, historyLoading, historyRange, historyRanges, toggleExpand, loadHistory, historyChartSvg };
   }
 };
 
