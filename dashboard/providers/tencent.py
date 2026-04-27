@@ -1,25 +1,33 @@
 import json
+import os
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from dashboard.providers.base import BaseResourceProvider, Resource, ResourceMetrics, MetricPoint
 
 
 def _load_config():
-    try:
-        with open("dashboard_config.json") as f:
+    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "dashboard_config.json")
+    if os.path.exists(config_path):
+        with open(config_path) as f:
             return json.load(f)
-    except FileNotFoundError:
-        return {}
+    return {}
 
 
 def _tccli(service: str, action: str, region: str, payload: Optional[Dict] = None) -> Dict[str, Any]:
     cmd = ["tccli", service, action, "--region", region, "--output", "json"]
     if payload:
         cmd.extend(["--cli-input-json", json.dumps(payload)])
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return json.loads(result.stdout)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
+        return json.loads(result.stdout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"tccli timeout: {service} {action}")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"tccli failed: {e.stderr}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"tccli returned invalid JSON: {e}")
 
 
 class TencentProvider(BaseResourceProvider):
@@ -114,7 +122,11 @@ class TencentProvider(BaseResourceProvider):
             for rt in self.resource_types():
                 for resource in self.discover_resources(region, rt):
                     metrics = self.get_metrics(resource, range_days=backfill_days)
-                    for p in metrics.points_7d:
-                        store.write_hourly([
-                            (resource.unique_id, "cpu_utilization", int(p.timestamp.timestamp()), p.value, resource.region)
-                        ])
+                    points = metrics.points_7d or metrics.points_30d
+                    records = []
+                    for p in points:
+                        ts = int(p.timestamp.replace(tzinfo=timezone.utc).timestamp())
+                        ts = ts // 3600 * 3600
+                        records.append((resource.unique_id, "CPUUtilization", ts, round(p.value, 2), resource.region))
+                    if records:
+                        store.write_hourly(records)
