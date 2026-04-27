@@ -829,6 +829,9 @@ with open('dashboard_config.json', 'r+') as f:
     if ! command -v tccli &> /dev/null; then
         echo "WARNING: tccli not found in PATH. Please install and configure it."
     fi
+    echo "Running initial backfill for Tencent Cloud metrics (30 days)..."
+    PYTHONPATH=/home/ubuntu/kiro-devops python3 scripts/sync_resource_metrics.py --backfill || echo "WARNING: Tencent backfill failed. You can retry later with: PYTHONPATH=/home/ubuntu/kiro-devops python3 scripts/sync_resource_metrics.py --backfill"
+    echo "Tencent setup complete."
 else
     python3 -c "
 import json
