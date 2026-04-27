@@ -156,17 +156,19 @@ class MetricsStore:
             ts = r[2]
             dt = datetime.utcfromtimestamp(ts)
             key = (dt.year, dt.month)
-            grouped.setdefault(key, []).append(r)
+            provider = _extract_provider(r[0])
+            grouped.setdefault(key, []).append((*r, provider))
 
         for (year, month), rows in grouped.items():
             conn = self._raw_conn(year, month)
             conn.executemany(
                 """
-                INSERT INTO hourly_metrics (resource_id, metric_name, timestamp, value, region)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO hourly_metrics (resource_id, metric_name, timestamp, value, region, provider)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(resource_id, metric_name, timestamp) DO UPDATE SET
                     value=excluded.value,
-                    region=excluded.region
+                    region=excluded.region,
+                    provider=excluded.provider
                 """,
                 rows,
             )
