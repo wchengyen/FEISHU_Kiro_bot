@@ -3,6 +3,11 @@ const { createRouter, createWebHashHistory } = VueRouter;
 
 const BASE = "/api/dashboard";
 
+const providerMeta = {
+  aws: { types: ['ec2', 'rds'], classLabel: '机型', osLabel: 'OS/Engine' },
+  tencent: { types: ['cvm', 'lighthouse'], classLabel: 'Class', osLabel: 'OS' }
+};
+
 async function api(path, opts = {}) {
   opts.headers = opts.headers || {};
   opts.headers["Content-Type"] = opts.headers["Content-Type"] || "application/json";
@@ -36,6 +41,8 @@ const AppLayout = {
           <router-link to="/events">Events</router-link>
           <router-link to="/scheduler">Scheduler</router-link>
           <router-link to="/resources">Resources</router-link>
+          <router-link v-if="providers.aws?.enabled" to="/resources/aws" style="padding-left:28px;font-size:13px">AWS</router-link>
+          <router-link v-if="providers.tencent?.enabled" to="/resources/tencent" style="padding-left:28px;font-size:13px">Tencent</router-link>
           <router-link to="/config">Config</router-link>
         </nav>
         <div class="logout" @click="logout">退出登录</div>
@@ -50,6 +57,7 @@ const AppLayout = {
     const router = VueRouter.useRouter();
     const isLogin = computed(() => route.path === "/login");
     const authChecked = ref(false);
+    const providers = ref({});
     onMounted(async () => {
       if (isLogin.value) {
         authChecked.value = true;
@@ -61,13 +69,19 @@ const AppLayout = {
       } catch (e) {
         authChecked.value = true;
       }
+      try {
+        const cfg = await api("/config");
+        providers.value = cfg.providers || {};
+      } catch (e) {
+        providers.value = {};
+      }
     });
     async function logout() {
       await api("/logout", { method: "POST" }).catch(() => {});
       authChecked.value = false;
       router.push("/login");
     }
-    return { isLogin, logout, authChecked };
+    return { isLogin, logout, authChecked, providers };
   }
 };
 
@@ -724,14 +738,14 @@ const SchedulerPage = {
 
 /* ---------- ResourcesPage ---------- */
 const ResourcesPage = {
+  props: ['provider'],
   template: `
     <div>
-      <h2 class="page-title">Resources</h2>
+      <h2 class="page-title">Resources — {{ provider.toUpperCase() }}</h2>
       <div class="toolbar">
         <select v-model="filterType" @change="load()">
           <option value="">全部类型</option>
-          <option value="ec2">EC2</option>
-          <option value="rds">RDS</option>
+          <option v-for="t in meta.types" :key="t" :value="t">{{ t.toUpperCase() }}</option>
         </select>
         <input v-model="searchQ" placeholder="搜索 Name / ID" />
         <select v-model="filterRegion">
@@ -739,8 +753,8 @@ const ResourcesPage = {
           <option v-for="reg in regions" :key="reg" :value="reg">{{ reg }}</option>
         </select>
         <input v-model="filterStatus" placeholder="Status" />
-        <input v-model="filterClass" placeholder="机型" />
-        <input v-model="filterOs" placeholder="OS" />
+        <input v-model="filterClass" :placeholder="meta.classLabel" />
+        <input v-model="filterOs" :placeholder="meta.osLabel" />
         <input v-model="filterTagKey" placeholder="Tag Key" />
         <input v-model="filterTagValue" placeholder="Tag Value" />
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b;cursor:pointer">
@@ -756,8 +770,8 @@ const ResourcesPage = {
               <th>Name</th>
               <th>Type</th>
               <th>Region</th>
-              <th>机型</th>
-              <th>OS</th>
+              <th>{{ meta.classLabel }}</th>
+              <th>{{ meta.osLabel }}</th>
               <th>ID</th>
               <th>Status</th>
               <th>Tags</th>
@@ -774,8 +788,8 @@ const ResourcesPage = {
                 <td>{{ r.name }}</td>
                 <td><span :class="'badge badge-' + r.type">{{ r.type }}</span></td>
                 <td>{{ r.meta.region || '-' }}</td>
-                <td>{{ r.type === 'ec2' ? (r.meta.instance_type || '-') : (r.meta.db_instance_class || '-') }}</td>
-                <td>{{ r.type === 'ec2' ? (r.meta.os || '-') : (r.meta.engine || '-') }}</td>
+                <td>{{ r.class_type || '-' }}</td>
+                <td>{{ r.os_or_engine || '-' }}</td>
                 <td><code class="tag" :title="r.id" style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;display:inline-block;white-space:nowrap;vertical-align:middle">{{ r.raw_id }}</code></td>
                 <td>{{ r.status }}</td>
                 <td>
@@ -826,7 +840,9 @@ const ResourcesPage = {
       </div>
     </div>
   `,
-  setup() {
+  setup(props) {
+    const provider = props.provider || 'aws';
+    const meta = providerMeta[provider] || providerMeta.aws;
     const resources = ref([]);
     const pins = ref([]);
     const regions = ref([]);
@@ -900,7 +916,7 @@ const ResourcesPage = {
       });
     }
     function sparklineColor(type) {
-      return { ec2: "#3b82f6", rds: "#8b5cf6", eks: "#f59e0b" }[type] || "#94a3b8";
+      return { ec2: "#3b82f6", rds: "#8b5cf6", eks: "#f59e0b", cvm: "#3b82f6", lighthouse: "#8b5cf6" }[type] || "#94a3b8";
     }
     function sparklineSvg(points, color) {
       if (!points || points.length < 2) return '<span style="color:#cbd5e1">-</span>';
@@ -934,7 +950,7 @@ const ResourcesPage = {
       const qs = new URLSearchParams();
       if (refresh) qs.append("refresh", "1");
       if (filterType.value) qs.append("type", filterType.value);
-      const data = await api("/resources?" + qs.toString());
+      const data = await api(`/resources?provider=${provider}&${qs.toString()}`);
       resources.value = data.resources || [];
       pins.value = data.pinned || [];
       regions.value = data.regions || [];
@@ -955,18 +971,12 @@ const ResourcesPage = {
 
       const cls = filterClass.value.trim().toLowerCase();
       if (cls) {
-        list = list.filter(r => {
-          const val = r.type === 'ec2' ? (r.meta.instance_type || '') : (r.meta.db_instance_class || '');
-          return val.toLowerCase().includes(cls);
-        });
+        list = list.filter(r => (r.class_type || '').toLowerCase().includes(cls));
       }
 
       const os = filterOs.value.trim().toLowerCase();
       if (os) {
-        list = list.filter(r => {
-          const val = r.type === 'ec2' ? (r.meta.os || '') : (r.meta.engine || '');
-          return val.toLowerCase().includes(os);
-        });
+        list = list.filter(r => (r.os_or_engine || '').toLowerCase().includes(os));
       }
 
       const tagKey = filterTagKey.value.trim();
@@ -984,7 +994,7 @@ const ResourcesPage = {
     });
 
     onMounted(() => load());
-    return { resources, pins, regions, filterType, searchQ, filterRegion, filterStatus, filterClass, filterOs, filterTagKey, filterTagValue, onlyPinned, isPinned, togglePin, sparklineSvg, sparklineColor, formatStats, resetFilters, filteredResources, load, expandedId, historyData, historyLoading, historyRange, historyRanges, toggleExpand, loadHistory, historyChartSvg };
+    return { meta, resources, pins, regions, filterType, searchQ, filterRegion, filterStatus, filterClass, filterOs, filterTagKey, filterTagValue, onlyPinned, isPinned, togglePin, sparklineSvg, sparklineColor, formatStats, resetFilters, filteredResources, load, expandedId, historyData, historyLoading, historyRange, historyRanges, toggleExpand, loadHistory, historyChartSvg };
   }
 };
 
@@ -1196,7 +1206,8 @@ const routes = [
   { path: "/skills", component: SkillsPage },
   { path: "/events", component: EventsPage },
   { path: "/scheduler", component: SchedulerPage },
-  { path: "/resources", component: ResourcesPage },
+  { path: "/resources", redirect: "/resources/aws" },
+  { path: "/resources/:provider(aws|tencent)", component: ResourcesPage, props: true },
   { path: "/config", component: ConfigPage },
 ];
 

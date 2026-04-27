@@ -1,8 +1,17 @@
 {
-  "regions": [
-    "cn-north-1",
-    "cn-northwest-1"
-  ],
+  "providers": {
+    "aws": {
+      "enabled": true,
+      "regions": [
+        "cn-north-1",
+        "cn-northwest-1"
+      ]
+    },
+    "tencent": {
+      "enabled": false,
+      "regions": []
+    }
+  },
   "mappings": [
     {
       "agent": "ec2-alert-analyzer",

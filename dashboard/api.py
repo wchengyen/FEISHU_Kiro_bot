@@ -66,6 +66,8 @@ def _fetch_resources_for_provider(provider, refresh=False):
                 "raw_id": resource.id,
                 "status": resource.status,
                 "meta": resource.meta,
+                "class_type": getattr(resource, "class_type", None) if isinstance(getattr(resource, "class_type", None), str) else None,
+                "os_or_engine": getattr(resource, "os_or_engine", None) if isinstance(getattr(resource, "os_or_engine", None), str) else None,
                 "tags": resource.tags,
                 "sparkline": metrics.sparkline_7d,
                 "current": metrics.current,
@@ -169,7 +171,9 @@ def get_config():
     for key in SENSITIVE_KEYS:
         if key in cfg:
             cfg[key] = "***"
-    return jsonify({"ok": True, "config": cfg})
+    dashboard_cfg = store.load()
+    providers_cfg = dashboard_cfg.get("providers", {})
+    return jsonify({"ok": True, "config": cfg, "providers": providers_cfg})
 
 
 @dashboard_bp.route("/api/dashboard/config", methods=["POST"])
