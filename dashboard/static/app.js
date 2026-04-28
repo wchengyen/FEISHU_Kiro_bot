@@ -907,8 +907,9 @@ const ResourcesPage = {
   `,
   setup(props) {
     const router = VueRouter.useRouter();
-    const provider = props.provider || 'aws';
-    const meta = providerMeta[provider] || providerMeta.aws;
+    const { watch } = Vue;
+    const provider = computed(() => props.provider || 'aws');
+    const meta = computed(() => providerMeta[provider.value] || providerMeta.aws);
     const resources = ref([]);
     const pins = ref([]);
     const regions = ref([]);
@@ -1027,7 +1028,7 @@ const ResourcesPage = {
       }
     }
     function switchProvider(key) {
-      if (key !== provider) {
+      if (key !== provider.value) {
         router.push(`/resources/${key}`);
       }
     }
@@ -1035,7 +1036,7 @@ const ResourcesPage = {
       const qs = new URLSearchParams();
       if (refresh) qs.append("refresh", "1");
       if (filterType.value) qs.append("type", filterType.value);
-      const data = await api(`/resources?provider=${provider}&${qs.toString()}`);
+      const data = await api(`/resources?provider=${provider.value}&${qs.toString()}`);
       resources.value = data.resources || [];
       pins.value = data.pinned || [];
       regions.value = data.regions || [];
@@ -1078,6 +1079,7 @@ const ResourcesPage = {
       return list;
     });
 
+    watch(() => props.provider, () => { load(); });
     onMounted(() => { loadProviders(); load(); });
     return { meta, resources, pins, regions, filterType, searchQ, filterRegion, filterStatus, filterClass, filterOs, filterTagKey, filterTagValue, onlyPinned, isPinned, togglePin, sparklineSvg, sparklineColor, formatStats, resetFilters, filteredResources, load, expandedId, historyData, historyLoading, historyRange, historyRanges, toggleExpand, loadHistory, historyChartSvg, enabledProviders, switchProvider, provider };
   }
