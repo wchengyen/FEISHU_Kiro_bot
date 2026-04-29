@@ -735,3 +735,22 @@ tr.pinned:hover td { background: #f1f5f9; }
   color: #a8a29e;
   background: #f5f5f4;
 }
+
+/* ===== Alert Mapping Cards ===== */
+.mapping-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.mapping-index { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: #2563eb; color: #fff; border-radius: 50%; font-size: 12px; font-weight: bold; }
+.mapping-name { flex: 1; font-weight: bold; font-size: 15px; border: none; background: transparent; border-bottom: 1px dashed #ccc; padding: 4px; }
+.mapping-name:focus { outline: none; border-bottom-color: #2563eb; }
+.mapping-card.disabled { opacity: 0.5; }
+.mapping-body { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 800px) { .mapping-body { grid-template-columns: 1fr; } }
+.mapping-section h4 { margin: 0 0 12px 0; color: #374151; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+.form-row { margin-bottom: 12px; }
+.form-row label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+.form-row input, .form-row select, .form-row textarea { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+.checkbox-group { display: flex; flex-wrap: wrap; gap: 12px; }
+.checkbox-group label { display: flex; align-items: center; gap: 4px; font-size: 13px; color: #374151; cursor: pointer; }
+.kv-list { display: flex; flex-direction: column; gap: 6px; }
+.kv-item { display: flex; gap: 6px; align-items: center; }
+.kv-item input { flex: 1; }
+.toggle span { font-size: 12px; color: #2563eb; }

@@ -1112,49 +1112,48 @@ const ConfigPage = {
       </div>
       <div v-if="tab === 'mappings'">
         <div class="toolbar">
-          <button @click="addMapping">添加</button>
-          <button class="secondary" @click="saveMappings">保存 Mappings</button>
+          <button @click="addMapping">添加规则</button>
+          <button class="secondary" @click="saveMappings">保存规则</button>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Source</th><th>Service</th><th>Severity</th><th>Agent</th><th>Skill</th><th>操作</th></tr></thead>
-            <tbody>
-              <tr v-for="(m, i) in mappings" :key="i">
-                <td>
-                  <select v-model="m.source">
-                    <option value="">- 选择 Source -</option>
-                    <option v-for="s in sourceOptions" :key="s" :value="s">{{ s }}</option>
-                  </select>
-                </td>
-                <td>
-                  <select v-model="m.service">
-                    <option value="">- 全部服务 -</option>
-                    <option v-for="s in mappingServiceOptions" :key="s" :value="s">{{ s }}</option>
-                  </select>
-                </td>
-                <td>
-                  <select v-model="m.severity">
-                    <option value="">- 选择级别 -</option>
-                    <option>critical</option><option>high</option><option>medium</option><option>low</option>
-                  </select>
-                </td>
-                <td>
-                  <select v-model="m.agent" @change="onAgentChange(m)">
-                    <option value="">- 选择 Agent -</option>
-                    <option v-for="a in agentOptions" :key="a" :value="a">{{ a }}</option>
-                  </select>
-                </td>
-                <td>
-                  <select v-model="m.skill" :disabled="!m.agent">
-                    <option value="">- 选择 Skill -</option>
-                    <option v-for="s in (agentSkillsMap[m.agent] || [])" :key="s" :value="s">{{ s }}</option>
-                  </select>
-                </td>
-                <td><button class="btn-danger-sm" @click="removeMapping(i)">删除</button></td>
-              </tr>
-              <tr v-if="mappings.length === 0"><td colspan="6" class="empty">暂无映射</td></tr>
-            </tbody>
-          </table>
+        <div v-for="(m, i) in mappings" :key="i" class="info-card mapping-card" :class="{ disabled: !m.enabled }">
+          <div class="mapping-header">
+            <span class="mapping-index">{{ i + 1 }}</span>
+            <input v-model="m.name" placeholder="规则名称" class="mapping-name" />
+            <label class="toggle"><input type="checkbox" v-model="m.enabled" /><span>{{ m.enabled ? '启用' : '停用' }}</span></label>
+            <button @click="moveMapping(i, -1)" :disabled="i === 0">↑</button>
+            <button @click="moveMapping(i, 1)" :disabled="i === mappings.length - 1">↓</button>
+            <button class="btn-danger-sm" @click="removeMapping(i)">删除</button>
+          </div>
+          <div class="mapping-body">
+            <div class="mapping-section">
+              <h4>Match 条件</h4>
+              <div class="form-row"><label>Source</label><select v-model="m.match.source"><option value="">- 任意 -</option><option v-for="s in sourceOptions" :key="s" :value="s">{{ s }}</option></select></div>
+              <div class="form-row"><label>Alertname</label><input v-model="m.match.alertname" placeholder="支持正则，如 Node.*|ExporterDown" /></div>
+              <div class="form-row"><label>Severity</label><div class="checkbox-group"><label v-for="sev in ['critical','high','medium','low']" :key="sev"><input type="checkbox" :value="sev" v-model="m.match.severity" /> {{ sev }}</label></div></div>
+              <div class="form-row"><label>Labels</label><div class="kv-list"><div v-for="(lv, li) in (m.match.labelsList || [])" :key="li" class="kv-item"><input v-model="lv.key" placeholder="key" /><input v-model="lv.value" placeholder="value (支持正则)" /><button @click="removeLabel(i, li)">×</button></div><button @click="addLabel(i)">+ 添加 Label</button></div></div>
+            </div>
+            <div class="mapping-section">
+              <h4>Action</h4>
+              <div class="form-row"><label>Agent</label><select v-model="m.action.agent"><option value="">- 选择 Agent -</option><option v-for="a in agentOptions" :key="a" :value="a">{{ a }}</option></select></div>
+              <div class="form-row"><label>Tools</label><div class="checkbox-group"><label v-for="t in toolOptions" :key="t"><input type="checkbox" :value="t" v-model="m.action.tools" /> {{ t }}</label></div></div>
+              <div class="form-row"><label>Timeout (秒)</label><input type="number" v-model.number="m.action.timeout" min="30" max="1800" /></div>
+              <div class="form-row"><label>Instruction</label><textarea v-model="m.action.instruction" rows="3" placeholder="留空使用 Agent 默认 Prompt"></textarea></div>
+            </div>
+          </div>
+        </div>
+        <div v-if="mappings.length === 0" class="empty" style="padding:24px">暂无规则</div>
+
+        <div class="info-card" style="margin-top:24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" @click="showDefaults = !showDefaults">
+            <h4>Fallback Defaults（未匹配时的默认配置）</h4>
+            <span>{{ showDefaults ? '▲' : '▼' }}</span>
+          </div>
+          <div v-if="showDefaults" style="margin-top:12px">
+            <div class="form-row"><label>默认 Agent</label><select v-model="alertDefaults.agent"><option v-for="a in agentOptions" :key="a" :value="a">{{ a }}</option></select></div>
+            <div class="form-row"><label>默认 Tools</label><div class="checkbox-group"><label v-for="t in toolOptions" :key="t"><input type="checkbox" :value="t" v-model="alertDefaults.tools" /> {{ t }}</label></div></div>
+            <div class="form-row"><label>默认 Timeout</label><input type="number" v-model.number="alertDefaults.timeout" min="30" max="1800" /></div>
+            <button @click="saveAlertDefaults">保存默认配置</button>
+          </div>
         </div>
       </div>
       <div v-if="tab === 'service_rules'">
@@ -1197,6 +1196,9 @@ const ConfigPage = {
     const agents = ref([]);
     const skills = ref([]);
     const agentSkillsMap = reactive({});
+    const alertDefaults = reactive({ agent: "ec2-alert-analyzer", tools: ["execute_bash"], timeout: 300 });
+    const showDefaults = ref(false);
+    const toolOptions = ["execute_bash", "fs_read", "fs_write", "grep", "glob"];
 
     async function load() {
       try {
@@ -1205,7 +1207,11 @@ const ConfigPage = {
       } catch {}
       try {
         const m = await api("/mappings");
-        mappings.value = m.mappings || [];
+        mappings.value = normalizeMappings(m.mappings || []);
+      } catch {}
+      try {
+        const d = await api("/alert-defaults");
+        Object.assign(alertDefaults, d.defaults || {});
       } catch {}
       try {
         const sr = await api("/service-rules");
@@ -1230,19 +1236,79 @@ const ConfigPage = {
         skills.value = s.skills || [];
       } catch {}
     }
+    function normalizeMappings(raw) {
+      return (raw || []).map((m, idx) => {
+        // Backward compat: old flat format {source, service, severity, agent, skill}
+        if (m.match === undefined && m.action === undefined) {
+          const labels = {};
+          if (m.service) labels.service = m.service;
+          const sev = m.severity ? [m.severity] : [];
+          return {
+            name: m.name || `legacy-${m.agent || "rule"}-${idx + 1}`,
+            enabled: true,
+            match: { source: m.source || "", alertname: "", severity: sev, labelsList: Object.keys(labels).map(k => ({ key: k, value: labels[k] })) },
+            action: { agent: m.agent || "", tools: [], timeout: 300, instruction: "" }
+          };
+        }
+        const nm = {
+          name: m.name || `rule-${idx + 1}`,
+          enabled: m.enabled !== false,
+          match: { source: m.match?.source || "", alertname: m.match?.alertname || "", severity: m.match?.severity || [], labelsList: [] },
+          action: { agent: m.action?.agent || "", tools: m.action?.tools || [], timeout: m.action?.timeout || 300, instruction: m.action?.instruction || "" }
+        };
+        if (m.match?.labels) {
+          nm.match.labelsList = Object.entries(m.match.labels).map(([k, v]) => ({ key: k, value: v }));
+        }
+        return nm;
+      });
+    }
+    function denormalizeMappings(list) {
+      return list.map(m => {
+        const match = {};
+        if (m.match.source) match.source = m.match.source;
+        if (m.match.alertname) match.alertname = m.match.alertname;
+        if (m.match.severity && m.match.severity.length) match.severity = m.match.severity;
+        const labels = {};
+        for (const lv of (m.match.labelsList || [])) { if (lv.key) labels[lv.key] = lv.value; }
+        if (Object.keys(labels).length) match.labels = labels;
+        return {
+          name: m.name,
+          enabled: m.enabled,
+          match,
+          action: {
+            agent: m.action.agent,
+            tools: m.action.tools,
+            timeout: m.action.timeout,
+            instruction: m.action.instruction || null
+          }
+        };
+      });
+    }
     async function saveCore() {
       await api("/config", { method: "POST", body: core });
       alert("已保存");
     }
     async function saveMappings() {
-      await api("/mappings", { method: "POST", body: { mappings: mappings.value } });
+      await api("/mappings", { method: "POST", body: { mappings: denormalizeMappings(mappings.value) } });
       alert("已保存");
     }
     function addMapping() {
-      mappings.value.push({ source: "", service: "", severity: "", agent: "", skill: "" });
+      mappings.value.push({ name: `rule-${mappings.value.length + 1}`, enabled: true, match: { source: "", alertname: "", severity: [], labelsList: [] }, action: { agent: "", tools: [], timeout: 300, instruction: "" } });
     }
-    function removeMapping(i) {
-      mappings.value.splice(i, 1);
+    function removeMapping(i) { mappings.value.splice(i, 1); }
+    function moveMapping(i, dir) {
+      const j = i + dir;
+      if (j < 0 || j >= mappings.value.length) return;
+      [mappings.value[i], mappings.value[j]] = [mappings.value[j], mappings.value[i]];
+    }
+    function addLabel(ruleIdx) {
+      if (!mappings.value[ruleIdx].match.labelsList) mappings.value[ruleIdx].match.labelsList = [];
+      mappings.value[ruleIdx].match.labelsList.push({ key: "", value: "" });
+    }
+    function removeLabel(ruleIdx, labelIdx) { mappings.value[ruleIdx].match.labelsList.splice(labelIdx, 1); }
+    async function saveAlertDefaults() {
+      await api("/alert-defaults", { method: "POST", body: { defaults: { ...alertDefaults } } });
+      alert("默认配置已保存");
     }
     async function saveServiceRules() {
       await api("/service-rules", { method: "POST", body: { rules: serviceRules.value } });
@@ -1254,20 +1320,10 @@ const ConfigPage = {
     function removeServiceRule(i) {
       serviceRules.value.splice(i, 1);
     }
-    const mappingServiceOptions = computed(() => {
-      const set = new Set();
-      for (const r of serviceRules.value) {
-        if (r.service) set.add(r.service);
-      }
-      for (const m of mappings.value) {
-        if (m.service) set.add(m.service);
-      }
-      return Array.from(set).sort();
-    });
     const sourceOptions = computed(() => {
       const set = new Set(["prometheus", "jenkins", "cloudwatch", "manual"]);
       for (const m of mappings.value) {
-        if (m.source) set.add(m.source);
+        if (m.match?.source) set.add(m.match.source);
       }
       return Array.from(set).sort();
     });
@@ -1281,7 +1337,15 @@ const ConfigPage = {
       }
     }
     onMounted(load);
-    return { tab, core, mappings, serviceRules, agentSkillsMap, mappingServiceOptions, sourceOptions, agentOptions, saveCore, saveMappings, addMapping, removeMapping, onAgentChange, saveServiceRules, addServiceRule, removeServiceRule };
+    return {
+      tab, core, mappings, serviceRules, agents, skills, agentSkillsMap,
+      alertDefaults, showDefaults, toolOptions,
+      sourceOptions, agentOptions,
+      saveCore, saveMappings, addMapping, removeMapping, moveMapping,
+      addLabel, removeLabel, saveAlertDefaults,
+      saveServiceRules, addServiceRule, removeServiceRule,
+      onAgentChange
+    };
   }
 };
 
