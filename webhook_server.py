@@ -192,7 +192,7 @@ def _trigger_analysis(handler, record: dict):
     }, ensure_ascii=False, indent=2)
 
     log.info(f"触发 Kiro ec2-alert-analyzer: {record['title'][:50]}...")
-    cmd = [kiro_bin, "chat", "--no-interactive", "-a", "--wrap", "never", "--agent", "ec2-alert-analyzer", alert_payload]
+    cmd = [kiro_bin, "chat", "--no-interactive", "-a", "--wrap", "never", "--trust-tools=execute_bash", "--agent", "ec2-alert-analyzer", alert_payload]
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True,
