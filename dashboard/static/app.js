@@ -1120,7 +1120,11 @@ const ConfigPage = {
           <div class="mapping-header">
             <span class="mapping-index">{{ i + 1 }}</span>
             <input v-model="m.name" placeholder="规则名称" class="mapping-name" />
-            <label class="toggle toggle-large"><input type="checkbox" v-model="m.enabled" /><span class="toggle-slider"></span><span class="toggle-label">{{ m.enabled ? '启用' : '停用' }}</span></label>
+            <label class="toggle toggle-large">
+              <input type="checkbox" v-model="m.enabled" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-label">{{ m.enabled ? '启用' : '停用' }}</span>
+            </label>
             <button @click="moveMapping(i, -1)" :disabled="i === 0">↑</button>
             <button @click="moveMapping(i, 1)" :disabled="i === mappings.length - 1">↓</button>
             <button class="btn-danger-sm" @click="removeMapping(i)">删除</button>
