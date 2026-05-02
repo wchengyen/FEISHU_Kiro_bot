@@ -799,6 +799,28 @@ const ResourcesPage = {
   template: `
     <div>
       <h2 class="page-title">Resources</h2>
+      <div class="cost-score-help" @click="showHelp = !showHelp">
+        <div class="cost-score-help-title">
+          <span>📊 成本评分说明</span>
+          <span>{{ showHelp ? '▲' : '▼' }}</span>
+        </div>
+        <div v-if="showHelp" class="cost-score-help-body">
+          <p>基于 <b>7 天平均 CPU 利用率</b> 计算，<b>80%</b> 为最佳利用率目标。</p>
+          <div class="cost-formula">
+            <b>评分公式</b>
+            <code>score = 100 − |cpu − 80| ÷ 80 × 100 × k</code>
+            <span>其中 k=1.0（cpu≤80%，线性扣分）；k=1.5（cpu&gt;80%，过载额外惩罚）</span>
+          </div>
+          <div class="cost-grades">
+            <span class="cost-grade-help" style="background:#22c55e">A</span> 90~100 优秀
+            <span class="cost-grade-help" style="background:#14b8a6">B</span> 70~89 良好
+            <span class="cost-grade-help" style="background:#eab308">C</span> 50~69 一般
+            <span class="cost-grade-help" style="background:#f97316">D</span> 30~49 较差
+            <span class="cost-grade-help" style="background:#ef4444">F</span> 0~29 极差
+          </div>
+          <p class="cost-hint">💡 分数越低代表资源浪费越严重，建议降配；分数过高（&gt;90 且 CPU&gt;90%）则存在过载风险，建议升配。</p>
+        </div>
+      </div>
       <div class="provider-tabs" v-if="Object.keys(enabledProviders).length > 1">
         <button
           v-for="(cfg, key) in enabledProviders"
@@ -833,6 +855,7 @@ const ResourcesPage = {
             <tr>
               <th style="width:40px">⭐</th>
               <th>Name</th>
+              <th style="width:110px">成本评分</th>
               <th>Type</th>
               <th>Region</th>
               <th>{{ meta.classLabel }}</th>
@@ -851,6 +874,12 @@ const ResourcesPage = {
               <tr :class="{ pinned: isPinned(r.id) }">
                 <td><button class="pin-btn" @click="togglePin(r.id)">{{ isPinned(r.id) ? '★' : '☆' }}</button></td>
                 <td>{{ r.name }}</td>
+                <td>
+                  <div class="cost-score-cell">
+                    <span class="cost-grade" :style="{ background: r.cost_color }">{{ r.cost_grade }}</span>
+                    <span class="cost-score">{{ r.cost_score }}</span>
+                  </div>
+                </td>
                 <td><span :class="'badge badge-' + r.type">{{ r.type }}</span></td>
                 <td>{{ r.meta.region || '-' }}</td>
                 <td>{{ r.class_type || '-' }}</td>
@@ -869,8 +898,23 @@ const ResourcesPage = {
                 <td><button class="pin-btn" @click="toggleExpand(r.id)">{{ expandedId === r.id ? '▼' : '▶' }}</button></td>
               </tr>
               <tr v-if="expandedId === r.id">
-                <td colspan="13" style="background:#f8fafc;padding:16px">
+                <td colspan="14" style="background:#f8fafc;padding:16px">
                 <div style="max-width:800px">
+                  <div class="cost-detail-card" style="margin-bottom:16px;padding:14px;border:1px solid #e2e8f0;border-radius:8px;background:#fff">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                      <span class="cost-grade cost-grade-large" :style="{ background: r.cost_color }">{{ r.cost_grade }}</span>
+                      <div>
+                        <div style="font-size:18px;font-weight:700">{{ r.cost_score }}<span style="font-size:13px;font-weight:400;color:#64748b"> / 100</span></div>
+                        <div style="font-size:12px;color:#64748b">7天平均CPU {{ r.stats_7d && r.stats_7d.avg != null ? r.stats_7d.avg + '%' : '-' }} → 目标 80%</div>
+                      </div>
+                    </div>
+                    <div style="font-size:13px;color:#374151;margin-bottom:8px">💡 {{ r.cost_advice }}</div>
+                    <div v-if="r.cost_breakdown" style="display:flex;gap:16px;font-size:12px;color:#64748b">
+                      <span>月成本: <b style="color:#374151">\${{ r.cost_breakdown.monthly }}</b></span>
+                      <span>有效成本: <b style="color:#22c55e">\${{ r.cost_breakdown.effective }}</b></span>
+                      <span>预估浪费: <b style="color:#ef4444">\${{ r.cost_breakdown.waste }}</b></span>
+                    </div>
+                  </div>
                   <div style="display:flex;gap:8px;margin-bottom:12px">
                     <button
                       v-for="rng in historyRanges"
@@ -928,6 +972,7 @@ const ResourcesPage = {
     const historyLoading = ref(false);
     const historyRange = ref("24h");
     const historyRanges = ["24h", "7d", "30d", "180d"];
+    const showHelp = ref(false);
 
     async function loadHistory(resourceId, range) {
       historyLoading.value = true;
@@ -1081,7 +1126,7 @@ const ResourcesPage = {
 
     watch(() => props.provider, () => { load(); });
     onMounted(() => { loadProviders(); load(); });
-    return { meta, resources, pins, regions, filterType, searchQ, filterRegion, filterStatus, filterClass, filterOs, filterTagKey, filterTagValue, onlyPinned, isPinned, togglePin, sparklineSvg, sparklineColor, formatStats, resetFilters, filteredResources, load, expandedId, historyData, historyLoading, historyRange, historyRanges, toggleExpand, loadHistory, historyChartSvg, enabledProviders, switchProvider, provider };
+    return { meta, resources, pins, regions, filterType, searchQ, filterRegion, filterStatus, filterClass, filterOs, filterTagKey, filterTagValue, onlyPinned, isPinned, togglePin, sparklineSvg, sparklineColor, formatStats, resetFilters, filteredResources, load, expandedId, historyData, historyLoading, historyRange, historyRanges, toggleExpand, loadHistory, historyChartSvg, enabledProviders, switchProvider, provider, showHelp };
   }
 };
 

@@ -22,6 +22,14 @@ from event_ingest import webhook_handler, ingest_to_store
 from event_store import EventStore
 from dashboard.providers import get_provider
 from dashboard.metrics_store import MetricsStore
+from dashboard.cost_scoring import (
+    compute_cost_score,
+    get_cost_grade,
+    get_cost_advice,
+    get_hourly_price,
+    compute_waste_cost,
+    grade_color,
+)
 
 
 SENSITIVE_KEYS = {"WEBHOOK_TOKEN", "DASHBOARD_TOKEN"}
@@ -74,6 +82,11 @@ def _fetch_resources_for_provider(provider, refresh=False):
             current = metrics.current
             stats_7d = metrics.stats_7d or {"avg": None, "p95": None, "max": None}
             stats_30d = metrics.stats_30d or {"avg": None, "p95": None, "max": None}
+        cpu_avg = stats_7d.get("avg") if stats_7d else None
+        cost_score = compute_cost_score(cpu_avg)
+        cost_grade = get_cost_grade(cost_score)
+        hourly_price = get_hourly_price(resource.resource_type, getattr(resource, "class_type", None))
+        cost_breakdown = compute_waste_cost(hourly_price, cost_score)
         result_resources.append(
             {
                 "id": resource.unique_id,
@@ -89,6 +102,11 @@ def _fetch_resources_for_provider(provider, refresh=False):
                 "current": current,
                 "stats_7d": stats_7d,
                 "stats_30d": stats_30d,
+                "cost_score": cost_score,
+                "cost_grade": cost_grade,
+                "cost_advice": get_cost_advice(cpu_avg),
+                "cost_color": grade_color(cost_grade),
+                "cost_breakdown": cost_breakdown,
             }
         )
     store.close()
