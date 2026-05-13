@@ -210,7 +210,11 @@ def _trigger_analysis(handler, record: dict):
     cmd = [kiro_bin, "chat", "--no-interactive", "-a", "--wrap", "never"]
     for tool in tools:
         cmd.append(f"--trust-tools={tool}")
-    cmd += ["--agent", agent, alert_payload]
+    cmd += ["--agent", agent]
+    bg_model = os.environ.get("BACKGROUND_MODEL", "").strip()
+    if bg_model:
+        cmd += ["--model", bg_model]
+    cmd.append(alert_payload)
 
     try:
         result = subprocess.run(
